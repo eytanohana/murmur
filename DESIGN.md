@@ -33,6 +33,7 @@ Whisper is not a streaming model, so while Option is held the app re-transcribes
 5. When the buffer exceeds `stream_trim_s` (20 s), it is cut at the end of the last committed word (word timestamps), the audio before the cut is dropped, and the committed text is passed as `initial_prompt` for later passes.
 6. Streamed chunks use type mode (no clipboard use), with a leading space between chunks. The non-stream path keeps `insert_mode`.
 7. Silence gate, minimum hold, combo cancel and max length still apply. Combo cancel stops streaming; text already typed stays. The first pass runs right after the minimum hold.
+9. Pause flush: when the buffer ends in `stream_flush_silence_s` (0.7 s) of silence and there is unflushed speech, a pass commits every word it heard (no holdback, no second pass), so a sentence end is typed while Option is held. Leading silence is cut to 0.2 s on every pass, and trailing silence on flush and final passes, because Whisper invents words over long silence.
 8. A pass is skipped unless the audio added since the last pass has at least `stream_min_speech_s` (0.3 s) of frames above the silence threshold.
 
 Passes decode plain text; word timestamps (0.4 s extra) are requested only for the pass that trims a long buffer. See the README for the latency measurements and the rejected tail-only and fast-commit variants.
@@ -41,7 +42,7 @@ Known limits: punctuation on the last committed word can still change in the fin
 
 Edge cases to handle:
 
-- Minimum hold: ignore holds shorter than 300 ms (configurable). Option is used for typing symbols, so short taps must do nothing.
+- Minimum hold: ignore holds shorter than 1000 ms (`min_hold_ms`). A tap on Option must never start dictation. Audio is buffered from key down so the first second is kept, but nothing is typed and no sound plays before the threshold; a shorter hold discards the audio.
 - Combo cancel: if any other key is pressed while Option is held (Option+Arrow, Option+letter), cancel the recording and discard it.
 - Maximum length: cap a recording at 120 s, then stop and transcribe.
 - Silence: if the clip is near silent (RMS below a threshold) or the transcript is empty, insert nothing.
@@ -57,7 +58,7 @@ Both modes post Quartz keyboard events (`CGEventPost`), not pynput's `Controller
 
 ## Feedback
 
-- Start and stop sounds using the system sounds in `/System/Library/Sounds` (`afplay`, non-blocking). Configurable off.
+- Start and stop sounds using the system sounds in `/System/Library/Sounds` (`afplay`, non-blocking). `sounds` defaults to false because the macOS mic indicator shows recording. The start sound plays when the hold threshold passes, the stop sound on release.
 - Optional menu bar item (`rumps`) showing idle, recording, transcribing. Build it second, behind a flag, after the core loop works.
 
 ## Architecture

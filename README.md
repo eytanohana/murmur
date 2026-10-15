@@ -35,7 +35,7 @@ Click into a text field (TextEdit) within 3 seconds. It types "hello from whispe
 
 Streaming is on by default. While Option is held, the buffer is re-transcribed about every half second. Words that match in the same position on two consecutive passes are typed; the last word waits until it stabilizes or you release. Typed text is never edited, so a word that Whisper revises after it was typed stays as typed, and only the remaining tail is appended on release (mismatches are logged). Streamed text is typed with key events, not pasted. Set `stream = false` to transcribe only on release and use `insert_mode`.
 
-- Holds shorter than `min_hold_ms` (300) do nothing, so Option symbol typing still works.
+- Holds shorter than `min_hold_ms` (1000) do nothing, so a tap or Option symbol typing never starts dictation. Audio is buffered from key down, so the first second is kept once the threshold passes. Nothing is typed and no start sound plays before the threshold; a shorter hold discards the audio.
 - Pressing any other key while Option is held cancels the recording.
 - Recordings stop at `max_record_s` (120) and are transcribed.
 - Near-silent clips and empty transcripts insert nothing.
@@ -51,20 +51,34 @@ Optional file at `~/.config/whisper-dictation/config.toml`. Any key can be omitt
 | --- | --- | --- |
 | `model_repo` | `mlx-community/whisper-large-v3-turbo` | Hugging Face MLX Whisper repo |
 | `language` | `"en"` | Forced language |
-| `min_hold_ms` | `300` | Minimum hold to count |
+| `min_hold_ms` | `1000` | Minimum hold to count |
 | `max_record_s` | `120` | Maximum recording length |
 | `silence_rms` | `0.005` | RMS below this counts as silence |
 | `option_keys` | `"both"` | `"left"`, `"right"` or `"both"` |
 | `insert_mode` | `"paste"` | `"paste"` or `"type"`; used only when `stream = false` |
 | `paste_restore_delay_ms` | `150` | Wait before restoring the clipboard |
-| `sounds` | `true` | Start and stop sounds |
+| `sounds` | `false` | Start sound (when the hold threshold passes) and stop sound (on release); off because the macOS mic indicator shows recording |
 | `start_sound`, `stop_sound` | Tink, Pop | Paths under `/System/Library/Sounds` |
 | `stream` | `true` | Type stable words while Option is held |
 | `stream_interval` | `0.5` | Seconds between pass starts; a pass takes about 0.45 s, so passes run nearly back to back |
 | `stream_holdback_words` | `1` | Words held back until stable or release |
 | `stream_trim_s` | `20` | Buffer length that triggers a trim at the last committed word |
 | `stream_min_speech_s` | `0.3` | New speech needed to run a pass |
+| `stream_flush_silence_s` | `0.7` | Pause that flushes held-back words and the unsettled tail while Option is held |
 | `menubar` | `false` | Same as `--menubar` |
+
+## Pause flush
+
+When the buffer ends in at least `stream_flush_silence_s` of silence (RMS at or below `silence_rms`) and there was speech since the last flush, one pass runs and every word it heard is typed, so the end of a sentence appears while Option is still held. Text already typed is not edited. Passes cut leading silence to 0.2 s and flush and final passes cut trailing silence to 0.2 s, because Whisper invents a word such as "Okay," over long silence. In a noisy room where the background is above `silence_rms`, no pause is detected and words are typed on release as before.
+
+Measured on a 48 s clip (the 43 s clip with 1.5 s pauses after "priorities." and "Tuesday." and 2 s of silence before release), real-time feed, real model:
+
+| Setting | Lag of the last word before a pause | Mean lag | Typed before release | Similarity to spoken text |
+| --- | --- | --- | --- | --- |
+| flush off | 3.26 s and 3.98 s | 1.21 s | 132 of 133 | 1.000 |
+| flush on (default) | 1.25 s and 1.62 s | 1.16 s | 133 of 133 | 1.000 |
+
+The lag at a pause includes the 0.7 s wait. The 1 s hold threshold moves the first text on the 43 s clip from 1.2 s to 1.9 s.
 
 ## Streaming latency
 
