@@ -1,4 +1,4 @@
-# whisper-dictation
+# whisper-local
 
 Push-to-talk dictation for macOS. Hold Option and speak; words are typed at the cursor of the focused app as they become stable, and the rest is typed when you release. Transcription runs locally with Whisper large-v3-turbo on MLX. See DESIGN.md for the reasoning.
 

@@ -1,4 +1,4 @@
-# whisper-dictation design
+# whisper-local design
 
 Push-to-talk dictation for macOS. Hold the Option key, speak, release; the transcript is typed into whichever app has focus. Everything runs locally.
 
