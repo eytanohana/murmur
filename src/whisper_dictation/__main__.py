@@ -11,7 +11,7 @@ from .app import Dictation
 from .config import CONFIG_PATH, load_config
 from .feedback import make_menubar_status
 from .hotkey import HotkeyListener
-from .inserter import Inserter
+from .inserter import Inserter, accessibility_trusted
 from .recorder import Recorder
 from .transcriber import Transcriber
 
@@ -20,11 +20,10 @@ log = logging.getLogger("whisper_dictation")
 
 def check_permissions() -> None:
     """Print which macOS permissions look missing, where the OS can tell us."""
-    from pynput import keyboard
-
-    if keyboard.Listener.IS_TRUSTED is False:
-        log.warning("Accessibility not granted. Add your terminal app under System "
-                    "Settings > Privacy & Security > Accessibility.")
+    if not accessibility_trusted():
+        log.warning("Accessibility not granted (AXIsProcessTrusted is false). Typing and "
+                    "pasting are silently dropped without it. Add your terminal app under "
+                    "System Settings > Privacy & Security > Accessibility and restart it.")
     try:
         import Quartz
 
@@ -36,10 +35,26 @@ def check_permissions() -> None:
     log.info("Microphone permission is requested on first recording; allow it when asked.")
 
 
+def test_insert(cfg) -> None:
+    """Type a phrase from a worker thread, like the streaming path does."""
+    phrase = "hello from whisper-dictation"
+    if not accessibility_trusted(prompt=True):
+        log.warning("Accessibility is not granted; the text will probably not appear.")
+    log.info("Click into a text field now. Typing in 3 seconds ...")
+    time.sleep(3)
+    inserter = Inserter(cfg.insert_mode, cfg.paste_restore_delay_ms)
+    worker = threading.Thread(target=inserter.type_text, args=(phrase,))
+    worker.start()
+    worker.join()
+    log.info("Done. If nothing appeared, check Accessibility for your terminal app.")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="whisper-dictation", description=__doc__)
     parser.add_argument("--menubar", action="store_true", help="show a menu bar status item")
     parser.add_argument("--config", type=str, default=None, help=f"config path (default {CONFIG_PATH})")
+    parser.add_argument("--test-insert", action="store_true",
+                        help="wait 3 s, type a test phrase at the cursor, then exit")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -49,6 +64,10 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = load_config(Path(args.config) if args.config else None)
     use_menubar = args.menubar or cfg.menubar
+
+    if args.test_insert:
+        test_insert(load_config(Path(args.config) if args.config else None))
+        return
 
     check_permissions()
     log.info("Loading model %s ...", cfg.model_repo)

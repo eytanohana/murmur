@@ -21,6 +21,7 @@ import time
 import numpy as np
 
 from .transcriber import rms
+from .watchdog import watchdog
 
 log = logging.getLogger("whisper_dictation")
 
@@ -123,8 +124,8 @@ class Streamer:
 
     def cancel(self) -> None:
         """Stop streaming without blocking. Text already typed stays."""
-        with self._lock:
-            self._cancelled = True
+        # No lock: this runs from the hotkey path and must not wait on a typing call.
+        self._cancelled = True
         self._stop.set()
         log.info("Streaming cancelled; %d words already inserted stay", self.total_committed)
 
@@ -154,7 +155,9 @@ class Streamer:
         if speech_seconds(new, self.sr, self.cfg.silence_rms) < self.cfg.stream_min_speech_s:
             return
         t0 = self.clock()
-        words = self.transcriber.transcribe_words(audio, self._prompt())
+        log.info("stream pass start: %.1fs audio", n / self.sr)
+        with watchdog("streaming pass"):
+            words = self.transcriber.transcribe_words(audio, self._prompt())
         took = self.clock() - t0
         self.pass_times.append(took)
         self.last_pass_samples = n
@@ -165,8 +168,8 @@ class Streamer:
         if newly and self._emit(newly):
             self.seg_committed.extend(newly)
         self.prev_words = words
-        log.info("stream pass %.2fs on %.1fs audio, %d words, %d committed",
-                 took, n / self.sr, len(cur), self.total_committed)
+        log.info("stream pass end: %.2fs, text=%r, %d committed", took, " ".join(cur),
+                 self.total_committed)
         self._maybe_trim(words, n)
 
     def _maybe_trim(self, words, n: int) -> None:
@@ -208,7 +211,10 @@ class Streamer:
         words: list = []
         if rms(final_audio) >= self.cfg.silence_rms:
             t0 = self.clock()
-            words = self.transcriber.transcribe_words(final_audio, self._prompt())
+            log.info("final pass start: %.1fs audio", len(final_audio) / self.sr)
+            with watchdog("final pass"):
+                words = self.transcriber.transcribe_words(final_audio, self._prompt())
+            log.info("final pass end: text=%r", " ".join(w.text for w in words))
             self.pass_times.append(self.clock() - t0)
         final = [w.text for w in words]
         tail, mismatch = release_tail(self.seg_committed, final)
