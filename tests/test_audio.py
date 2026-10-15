@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from helpers import SR, tone, w
-from murmur.streaming import (
+from murmur.audio import (
     drop_leading_silence,
     drop_trailing_silence,
     speech_seconds,

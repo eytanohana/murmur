@@ -1,6 +1,7 @@
 import numpy as np
 
-from murmur.transcriber import Transcriber, rms
+from murmur.audio import rms
+from murmur.transcriber import Transcriber
 
 
 def test_rms_of_empty_and_constant():

@@ -17,13 +17,31 @@ import logging
 import re
 import threading
 import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .transcriber import Word, rms
+from .audio import (
+    drop_leading_silence,
+    drop_trailing_silence,
+    rms,
+    speech_seconds,
+    trailing_silence_s,
+    trim_sample,
+)
+from .transcriber import Word
 from .watchdog import watchdog
 
+if TYPE_CHECKING:
+    from .config import Config
+    from .inserter import Inserter
+    from .recorder import Recorder
+    from .transcriber import Transcriber
+
 log = logging.getLogger("murmur")
+
+PROMPT_CHARS = 200  # tail of already-typed text given to Whisper as context after a trim
 
 
 def norm(word: str) -> str:
@@ -73,104 +91,17 @@ def release_tail(committed: list[str], final: list[str]) -> tuple[list[str], boo
     return final[n:], mismatch
 
 
-def speech_seconds(
-    audio: np.ndarray, sample_rate: int, threshold: float, frame_s: float = 0.02
-) -> float:
-    """Seconds of audio in 20 ms frames whose RMS is above the threshold."""
-    frame = int(sample_rate * frame_s)
-    if frame <= 0 or audio.size < frame:
-        return 0.0
-    usable = audio[: audio.size // frame * frame].reshape(-1, frame)
-    frame_rms = np.sqrt(np.mean(np.square(usable, dtype=np.float64), axis=1))
-    return float(np.count_nonzero(frame_rms > threshold)) * frame_s
-
-
-def trailing_silence_s(
-    audio: np.ndarray, sample_rate: int, threshold: float, frame_s: float = 0.02
-) -> float:
-    """Seconds of audio at the end whose 20 ms frames are all at or below the threshold."""
-    frame = int(sample_rate * frame_s)
-    if frame <= 0 or audio.size < frame:
-        return 0.0
-    usable = audio[audio.size % frame :].reshape(-1, frame)  # align frames to the end
-    loud = np.sqrt(np.mean(np.square(usable, dtype=np.float64), axis=1)) > threshold
-    if not loud.any():
-        return usable.shape[0] * frame_s
-    return float(usable.shape[0] - 1 - np.nonzero(loud)[0][-1]) * frame_s
-
-
-def drop_trailing_silence(
-    audio: np.ndarray, sample_rate: int, threshold: float, keep_s: float = 0.2
-) -> np.ndarray:
-    """Cut trailing silence down to `keep_s`. Whisper invents words over long silence."""
-    extra = trailing_silence_s(audio, sample_rate, threshold) - keep_s
-    if extra <= 0:
-        return audio
-    return audio[: audio.size - int(extra * sample_rate)]
-
-
-def drop_leading_silence(
-    audio: np.ndarray, sample_rate: int, threshold: float, keep_s: float = 0.2
-) -> tuple[np.ndarray, int]:
-    """Cut leading silence down to `keep_s`. Returns the audio and samples removed.
-
-    Leading silence makes Whisper start with an invented word such as "Okay,".
-    """
-    extra = trailing_silence_s(audio[::-1], sample_rate, threshold) - keep_s
-    if extra <= 0:
-        return audio, 0
-    removed = int(extra * sample_rate)
-    return audio[removed:], removed
-
-
-def trim_sample(
-    words,
-    committed: int,
-    sample_rate: int,
-    total_samples: int,
-    audio: np.ndarray | None = None,
-    threshold: float = 0.005,
-) -> int | None:
-    """Sample index to cut the buffer at, after the last committed word.
-
-    Whisper stretches the end time of a word that is followed by silence into the
-    next word, so cutting at that time can clip the start of the next word. With
-    `audio` given, the cut moves back to the first quiet stretch (60 ms) inside the
-    word's span, when there is one.
-    """
-    if committed <= 0 or committed > len(words):
-        return None
-    word = words[committed - 1]
-    cut = int(word.end * sample_rate)
-    if cut <= 0 or cut >= total_samples:
-        return None
-    if audio is not None:
-        frame = int(sample_rate * 0.02)
-        start = int(word.start * sample_rate)
-        span = audio[start:cut]
-        quiet = (
-            np.sqrt(
-                np.mean(
-                    np.square(
-                        span[: span.size // frame * frame].reshape(-1, frame), dtype=np.float64
-                    ),
-                    axis=1,
-                )
-            )
-            <= threshold
-            if span.size >= frame
-            else np.zeros(0, dtype=bool)
-        )
-        for i in range(5, len(quiet) - 2):  # skip the first 100 ms of the word
-            if quiet[i] and quiet[i + 1] and quiet[i + 2]:
-                return start + i * frame
-    return cut
-
-
 class Streamer:
     """Owns one utterance: pass loop, committed text, trimming and the final pass."""
 
-    def __init__(self, cfg, recorder, transcriber, inserter, clock=time.monotonic):
+    def __init__(
+        self,
+        cfg: Config,
+        recorder: Recorder,
+        transcriber: Transcriber,
+        inserter: Inserter,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self.cfg = cfg
         self.recorder = recorder
         self.transcriber = transcriber
@@ -179,7 +110,7 @@ class Streamer:
         self.sr = cfg.sample_rate
         self.seg_committed: list[str] = []  # committed words in the current buffer
         self.prior_text = ""  # committed text from trimmed segments
-        self.prev_words: list = []
+        self.prev_words: list[Word] = []
         self.last_pass_samples = 0
         self.flushed_samples = 0  # buffer length at the last pause flush
         self.inserted_any = False
@@ -214,14 +145,44 @@ class Streamer:
             started = self.clock()
             try:
                 self.tick()
-            except Exception:
+            except Exception:  # a failed pass must not end the loop for the rest of the hold
                 log.exception("Streaming pass failed")
             deadline = started + self.cfg.stream_interval
 
     # one pass
 
     def _prompt(self) -> str | None:
-        return self.prior_text[-200:] or None
+        return self.prior_text[-PROMPT_CHARS:] or None
+
+    def _pause_detected(self, audio: np.ndarray) -> bool:
+        """A pause after speech that has not been flushed yet."""
+        rms_floor = self.cfg.silence_rms
+        return (
+            trailing_silence_s(audio, self.sr, rms_floor) >= self.cfg.stream_flush_silence_s
+            and speech_seconds(audio[self.flushed_samples :], self.sr, rms_floor)
+            >= self.cfg.stream_min_speech_s
+        )
+
+    def _has_new_speech(self, audio: np.ndarray) -> bool:
+        new = audio[self.last_pass_samples :]
+        return speech_seconds(new, self.sr, self.cfg.silence_rms) >= self.cfg.stream_min_speech_s
+
+    def _decode(
+        self, audio: np.ndarray, label: str, drop_trailing: bool, timestamps: bool
+    ) -> list[Word]:
+        """Transcribe with silence trimmed off the edges; word times are in buffer time.
+
+        Long silence makes Whisper invent words ("Okay,"), and a flush or the final
+        pass would commit them for good.
+        """
+        with watchdog(label):
+            heard = audio
+            if drop_trailing:
+                heard = drop_trailing_silence(heard, self.sr, self.cfg.silence_rms)
+            heard, removed = drop_leading_silence(heard, self.sr, self.cfg.silence_rms)
+            words = self.transcriber.transcribe_words(heard, self._prompt(), timestamps=timestamps)
+        offset = removed / self.sr
+        return [Word(w.text, w.start + offset, w.end + offset) for w in words]
 
     def tick(self) -> None:
         """Run one streaming pass if enough new speech has arrived."""
@@ -229,42 +190,30 @@ class Streamer:
             return
         audio = self.recorder.snapshot()
         n = len(audio)
-        new = audio[self.last_pass_samples :]
-        # A pause after unflushed speech: run a pass and commit everything it heard.
-        flush = (
-            trailing_silence_s(audio, self.sr, self.cfg.silence_rms)
-            >= self.cfg.stream_flush_silence_s
-            and speech_seconds(audio[self.flushed_samples :], self.sr, self.cfg.silence_rms)
-            >= self.cfg.stream_min_speech_s
-        )
-        if not flush and (
-            speech_seconds(new, self.sr, self.cfg.silence_rms) < self.cfg.stream_min_speech_s
-        ):
+        flush = self._pause_detected(audio)
+        if not flush and not self._has_new_speech(audio):
             return
         t0 = self.clock()
         log.info("stream pass start: %.1fs audio", n / self.sr)
         # Timestamps are only needed on the pass that trims a long buffer.
         need_cut = n / self.sr > self.cfg.stream_trim_s
-        with watchdog("streaming pass"):
-            # Long trailing silence makes Whisper invent words ("Okay,"), and a flush
-            # would commit them for good.
-            heard = drop_trailing_silence(audio, self.sr, self.cfg.silence_rms) if flush else audio
-            heard, removed = drop_leading_silence(heard, self.sr, self.cfg.silence_rms)
-            words = self.transcriber.transcribe_words(heard, self._prompt(), timestamps=need_cut)
-            offset = removed / self.sr
-            words = [Word(w.text, w.start + offset, w.end + offset) for w in words]
+        words = self._decode(audio, "streaming pass", drop_trailing=flush, timestamps=need_cut)
         took = self.clock() - t0
         self.pass_times.append(took)
         self.last_pass_samples = n
         cur = [w.text for w in words]
-        holdback = 0 if flush else self.cfg.stream_holdback_words
-        target = commit_target(
-            len(self.seg_committed), [w.text for w in self.prev_words], cur, holdback
-        )
         if flush:
-            target = max(target, len(cur))
+            # The speaker paused: nothing more is coming, so commit everything heard.
+            target = max(len(self.seg_committed), len(cur))
             self.flushed_samples = n
             log.info("pause detected; flushing held-back words")
+        else:
+            target = commit_target(
+                len(self.seg_committed),
+                [w.text for w in self.prev_words],
+                cur,
+                self.cfg.stream_holdback_words,
+            )
         newly = cur[len(self.seg_committed) : target]
         if newly and self._emit(newly):
             self.seg_committed.extend(newly)
@@ -277,7 +226,7 @@ class Streamer:
         )
         self._maybe_trim(words, n, audio)
 
-    def _maybe_trim(self, words, n: int, audio: np.ndarray) -> None:
+    def _maybe_trim(self, words: list[Word], n: int, audio: np.ndarray) -> None:
         if n / self.sr <= self.cfg.stream_trim_s:
             return
         cut = trim_sample(words, len(self.seg_committed), self.sr, n, audio, self.cfg.silence_rms)
@@ -294,6 +243,7 @@ class Streamer:
         )
 
     def _emit(self, words: list[str]) -> bool:
+        """Type words; False when cancelled. The lock keeps cancel and typing ordered."""
         with self._lock:
             if self._cancelled:
                 return False
@@ -307,6 +257,16 @@ class Streamer:
 
     # release
 
+    def _final_words(self, final_audio: np.ndarray) -> list[str]:
+        if rms(final_audio) < self.cfg.silence_rms:
+            return []
+        t0 = self.clock()
+        log.info("final pass start: %.1fs audio", len(final_audio) / self.sr)
+        words = self._decode(final_audio, "final pass", drop_trailing=True, timestamps=False)
+        log.info("final pass end: text=%r", " ".join(w.text for w in words))
+        self.pass_times.append(self.clock() - t0)
+        return [w.text for w in words]
+
     def finish(self, final_audio: np.ndarray) -> list[str]:
         """Wait for a running pass, run the final pass, type the tail."""
         self._stop.set()
@@ -315,17 +275,7 @@ class Streamer:
         if self._cancelled:
             return []
         before = self.total_committed
-        words: list = []
-        if rms(final_audio) >= self.cfg.silence_rms:
-            t0 = self.clock()
-            log.info("final pass start: %.1fs audio", len(final_audio) / self.sr)
-            with watchdog("final pass"):
-                heard = drop_trailing_silence(final_audio, self.sr, self.cfg.silence_rms)
-                heard, _ = drop_leading_silence(heard, self.sr, self.cfg.silence_rms)
-                words = self.transcriber.transcribe_words(heard, self._prompt(), timestamps=False)
-            log.info("final pass end: text=%r", " ".join(w.text for w in words))
-            self.pass_times.append(self.clock() - t0)
-        final = [w.text for w in words]
+        final = self._final_words(final_audio)
         tail, mismatch = release_tail(self.seg_committed, final)
         if mismatch:
             log.warning(

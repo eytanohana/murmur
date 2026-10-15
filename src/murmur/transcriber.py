@@ -6,18 +6,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .audio import rms
+
 
 @dataclass
 class Word:
     text: str
     start: float
     end: float
-
-
-def rms(audio: np.ndarray) -> float:
-    if audio.size == 0:
-        return 0.0
-    return float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
 
 
 class Transcriber:
