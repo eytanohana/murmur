@@ -11,7 +11,7 @@ uv sync
 uv run whisper-dictation
 ```
 
-The first run downloads the model (about 1.6 GB) into the Hugging Face cache. Later starts load it in a few seconds. Add `--menubar` for a status item (needs `uv sync --extra menubar`). Use `-v` for debug logs.
+The first run downloads the model (about 1.6 GB) into the Hugging Face cache. Later starts load it in a few seconds. Use `-v` for debug logs.
 
 ## Permissions
 
@@ -22,6 +22,16 @@ Grant these to the terminal app that runs the command, in System Settings > Priv
 - Microphone: prompted on first recording.
 
 The app prints a warning at startup for Accessibility and Input Monitoring if they look missing.
+
+## Recording indicator
+
+The macOS mic indicator does not appear for a LaunchAgent, so the app draws its own. Set `indicator` in the config (default `"overlay"`):
+
+- `overlay`: a small dark pill with a red dot and "REC" at the top center of the main screen, just below the menu bar and notch. It appears when the 1 s hold threshold passes (not at key down), shows an orange dot and "..." while the final pass runs, then hides. It is a borderless non-activating panel at status window level on all Spaces; it ignores the mouse and never takes focus, so typing continues in the app you are using. No sounds. `indicator_position` moves it: `top-center`, `top-left`, `top-right`, `bottom-center`, `bottom-left`, `bottom-right`.
+- `menubar`: a text item ("mic", "REC", "...") in the menu bar via rumps (`uv sync --extra menubar`). `--menubar` and `menubar = true` are aliases. It permanently uses menu bar space, and macOS hides status items that do not fit next to the notch. On the development Mac the item was created but macOS did not put it on screen because the bar was full, which is why the overlay is the default.
+- `none`: no indicator.
+
+AppKit runs on the main thread and dictation on other threads. The app uses the accessory activation policy, so there is no Dock icon. On startup the menu bar variant activates once (a rumps default). SIGTERM and Ctrl+C end the app with exit status 0 under both indicators. After changing `indicator` under the agent, run `launchctl kickstart -k gui/$(id -u)/com.user.whisper-dictation`.
 
 ## Run at login
 
@@ -99,7 +109,9 @@ Optional file at `~/.config/whisper-dictation/config.toml`. Any key can be omitt
 | `stream_trim_s` | `20` | Buffer length that triggers a trim at the last committed word |
 | `stream_min_speech_s` | `0.3` | New speech needed to run a pass |
 | `stream_flush_silence_s` | `0.7` | Pause that flushes held-back words and the unsettled tail while Option is held |
-| `menubar` | `false` | Same as `--menubar` |
+| `indicator` | `"overlay"` | `"overlay"`, `"menubar"` or `"none"` |
+| `indicator_position` | `"top-center"` | Overlay position |
+| `menubar` | `false` | Deprecated alias for `indicator = "menubar"` |
 
 ## Pause flush
 

@@ -59,7 +59,7 @@ Both modes post Quartz keyboard events (`CGEventPost`), not pynput's `Controller
 ## Feedback
 
 - Start and stop sounds using the system sounds in `/System/Library/Sounds` (`afplay`, non-blocking). `sounds` defaults to false because the macOS mic indicator shows recording. The start sound plays when the hold threshold passes, the stop sound on release.
-- Optional menu bar item (`rumps`) showing idle, recording, transcribing. Build it second, behind a flag, after the core loop works.
+- Recording indicator, `indicator = "overlay" | "menubar" | "none"` (default overlay), because a LaunchAgent gets no macOS mic indicator. The overlay is a borderless, click-through, non-activating NSPanel pill (red dot and "REC") below the menu bar and notch, on all Spaces; it appears after the hold threshold, shows "..." during the final pass and hides. The menu bar item (`rumps`) shows idle, recording and transcribing but cannot be shown when macOS hides it for lack of space. AppKit owns the main thread (accessory activation policy) and dictation runs on other threads; SIGTERM and SIGINT stop the run loop with exit status 0. No sounds unless `sounds` is on.
 
 ## Architecture
 
@@ -73,7 +73,8 @@ src/whisper_dictation/
   inserter.py     clipboard paste and type modes
   app.py          state machine: IDLE -> RECORDING -> TRANSCRIBING -> IDLE
   streaming.py    stable-prefix commit logic and the per-utterance Streamer
-  feedback.py     sounds, menu bar
+  feedback.py     sounds
+  indicator.py    overlay pill and menu bar item
   agent.py        LaunchAgent plist and launchctl commands
 tests/            pytest; unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
 ```
