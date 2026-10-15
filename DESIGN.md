@@ -51,6 +51,8 @@ Edge cases to handle:
 
 Default: save the clipboard, set the clipboard to the transcript, send Cmd+V, wait about 150 ms, restore the previous clipboard. This is reliable across apps and handles Unicode. Config option `insert_mode = "type"` to type characters with synthetic key events instead.
 
+Both modes post Quartz keyboard events (`CGEventPost`), not pynput's `Controller`, because pynput typing is unsafe off the main thread on recent macOS. Text goes out as Unicode strings in chunks of 20 UTF-16 units with flags cleared so a held Option key has no effect; Cmd+V carries only the Command flag. The hotkey listener ignores injected key events and hands callbacks to a dispatcher thread so the event tap is never blocked. Accessibility trust is checked with `AXIsProcessTrusted` and logged, since macOS drops posted events silently without it.
+
 ## Feedback
 
 - Start and stop sounds using the system sounds in `/System/Library/Sounds` (`afplay`, non-blocking). Configurable off.

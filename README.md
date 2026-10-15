@@ -23,6 +23,14 @@ Grant these to the terminal app that runs the command, in System Settings > Priv
 
 The app prints a warning at startup for Accessibility and Input Monitoring if they look missing.
 
+## Checking insertion without the microphone
+
+```
+uv run whisper-dictation --test-insert
+```
+
+Click into a text field (TextEdit) within 3 seconds. It types "hello from whisper-dictation" from a worker thread, the same way streaming does. If nothing appears, the log says whether Accessibility is missing; macOS drops posted key events silently without it.
+
 ## Behavior
 
 Streaming is on by default. While Option is held, the buffer is re-transcribed about every second. Words that match in the same position on two consecutive passes are typed; the last two words wait until they stabilize or you release. Typed text is never edited, so a word that Whisper revises after it was typed stays as typed, and only the remaining tail is appended on release (mismatches are logged). Streamed text is typed with key events, not pasted. Set `stream = false` to transcribe only on release and use `insert_mode`.
@@ -57,6 +65,12 @@ Optional file at `~/.config/whisper-dictation/config.toml`. Any key can be omitt
 | `stream_trim_s` | `20` | Buffer length that triggers a trim at the last committed word |
 | `stream_min_speech_s` | `0.5` | New speech needed to run a pass |
 | `menubar` | `false` | Same as `--menubar` |
+
+## Troubleshooting
+
+Logs go to the terminal at INFO level: Option down and up, every streaming pass with its text, and every insert with the text and the number of key events posted. If a pass or an insert runs longer than 10 s, all thread stacks are dumped to stderr; include that in a bug report.
+
+Text is typed with Quartz keyboard events (flags cleared, 20 UTF-16 units per event), so a held Option key does not alter the characters. Key events injected by software never cancel a recording.
 
 ## Swapping the model
 
