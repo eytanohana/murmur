@@ -6,7 +6,8 @@ from whisper_dictation.config import load_config
 def test_defaults_when_missing(tmp_path):
     cfg = load_config(tmp_path / "none.toml")
     assert cfg.model_repo == "mlx-community/whisper-large-v3-turbo"
-    assert cfg.min_hold_ms == 300
+    assert cfg.min_hold_ms == 1000
+    assert cfg.sounds is False
 
 
 def test_overrides(tmp_path):

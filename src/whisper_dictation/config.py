@@ -14,7 +14,7 @@ class Config:
     model_repo: str = "mlx-community/whisper-large-v3-turbo"
     language: str = "en"
     sample_rate: int = 16000
-    min_hold_ms: int = 300
+    min_hold_ms: int = 1000
     max_record_s: float = 120.0
     silence_rms: float = 0.005
     # "left", "right" or "both"
@@ -22,7 +22,8 @@ class Config:
     # "paste" or "type"
     insert_mode: str = "paste"
     paste_restore_delay_ms: int = 150
-    sounds: bool = True
+    # Start and stop sounds. Off by default; the macOS mic indicator shows recording.
+    sounds: bool = False
     start_sound: str = "/System/Library/Sounds/Tink.aiff"
     stop_sound: str = "/System/Library/Sounds/Pop.aiff"
     menubar: bool = False
@@ -32,6 +33,8 @@ class Config:
     stream_holdback_words: int = 1
     stream_trim_s: float = 20.0
     stream_min_speech_s: float = 0.3
+    # A pause this long flushes held-back words and the unsettled tail while Option is held.
+    stream_flush_silence_s: float = 0.7
 
 
 def load_config(path: Path | None = None) -> Config:

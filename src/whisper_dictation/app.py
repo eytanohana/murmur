@@ -3,6 +3,9 @@
 Policy for a press during transcription: it is ignored and a log line is
 printed. Jobs are never queued, so a slow clip cannot build a backlog.
 
+Audio is buffered from key down, but nothing is typed and no start sound plays
+until the key has been held for min_hold_ms; a shorter hold discards everything.
+
 With cfg.stream (default) a Streamer types stable words while Option is held
 and the release only types the tail. With stream = false the whole clip is
 transcribed on release and inserted with insert_mode.
@@ -43,6 +46,7 @@ class Dictation:
         self._lock = threading.Lock()
         self._started_at = 0.0
         self.streamer: Streamer | None = None
+        self._press_id = 0
         # Max-length stop is wired here so the recorder can call back into us.
         recorder.on_max = self.on_release
 
@@ -69,7 +73,19 @@ class Dictation:
                 self.streamer = Streamer(self.cfg, self.recorder, self.transcriber,
                                          self.inserter, self.clock)
                 self.streamer.start()
-        self.sound(self.cfg.start_sound, self.cfg.sounds)
+            self._press_id += 1
+            if self.cfg.sounds:
+                # The start sound marks that the hold threshold passed, not the key down.
+                timer = threading.Timer(self.cfg.min_hold_ms / 1000, self._threshold_passed,
+                                        args=(self._press_id,))
+                timer.daemon = True
+                timer.start()
+
+    def _threshold_passed(self, press_id: int) -> None:
+        with self._lock:
+            if self.state is not State.RECORDING or press_id != self._press_id:
+                return
+        self.sound(self.cfg.start_sound, True)
 
     def on_other_key(self) -> None:
         with self._lock:
@@ -96,7 +112,8 @@ class Dictation:
                 log.debug("Hold of %.0f ms below minimum; ignored", held * 1000)
                 return
             self._set_state(State.TRANSCRIBING)
-        self.sound(self.cfg.stop_sound, self.cfg.sounds)
+        if self.cfg.sounds:
+            self.sound(self.cfg.stop_sound, True)
         streamer, self.streamer = self.streamer, None
         job = self._process_stream if streamer else self._process
         args = (streamer, audio) if streamer else (audio, held)

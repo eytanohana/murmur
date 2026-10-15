@@ -64,13 +64,13 @@ def test_normal_dictation_inserts_text():
     r.d.on_release()
     assert r.ins.inserted == ["hello world"]
     assert r.d.state is State.IDLE
-    assert len(r.sounds) == 2
+    assert r.sounds == []  # sounds are off by default
 
 
 def test_short_tap_is_ignored():
     r = make()
     r.d.on_press()
-    r.clock.t = 0.2
+    r.clock.t = 0.9
     r.d.on_release()
     assert r.tr.calls == 0
     assert r.ins.inserted == []
@@ -80,9 +80,37 @@ def test_short_tap_is_ignored():
 def test_hold_at_threshold_is_accepted():
     r = make()
     r.d.on_press()
-    r.clock.t = 0.3
+    r.clock.t = 1.0
     r.d.on_release()
     assert r.ins.inserted == ["hello world"]
+
+
+def test_start_sound_plays_only_after_the_hold_threshold():
+    import time
+
+    rec, sounds = FakeRecorder(), []
+    cfg = Config(stream=False, sounds=True, min_hold_ms=100)
+    d = Dictation(cfg, rec, FakeTranscriber(), FakeInserter(), run_async=False,
+                  sound=lambda path, enabled: sounds.append(path))
+    d.on_press()
+    assert sounds == []          # nothing at key down
+    time.sleep(0.3)
+    assert sounds == [cfg.start_sound]
+    d.on_release()
+    assert sounds[-1] == cfg.stop_sound
+
+
+def test_tap_before_threshold_plays_no_sound():
+    import time
+
+    rec, sounds = FakeRecorder(), []
+    cfg = Config(stream=False, sounds=True, min_hold_ms=200)
+    d = Dictation(cfg, rec, FakeTranscriber(), FakeInserter(), run_async=False,
+                  sound=lambda path, enabled: sounds.append(path))
+    d.on_press()
+    d.on_release()
+    time.sleep(0.4)
+    assert sounds == []
 
 
 def test_other_key_cancels_recording():
