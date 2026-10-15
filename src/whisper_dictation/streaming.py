@@ -84,6 +84,19 @@ def speech_seconds(audio: np.ndarray, sample_rate: int, threshold: float,
     return float(np.count_nonzero(frame_rms > threshold)) * frame_s
 
 
+def trailing_silence_s(audio: np.ndarray, sample_rate: int, threshold: float,
+                       frame_s: float = 0.02) -> float:
+    """Seconds of audio at the end whose 20 ms frames are all at or below the threshold."""
+    frame = int(sample_rate * frame_s)
+    if frame <= 0 or audio.size < frame:
+        return 0.0
+    usable = audio[audio.size % frame:].reshape(-1, frame)  # align frames to the end
+    loud = np.sqrt(np.mean(np.square(usable, dtype=np.float64), axis=1)) > threshold
+    if not loud.any():
+        return usable.shape[0] * frame_s
+    return float(usable.shape[0] - 1 - np.nonzero(loud)[0][-1]) * frame_s
+
+
 def trim_sample(words, committed: int, sample_rate: int, total_samples: int) -> int | None:
     """Sample index to cut the buffer at: the end of the last committed word."""
     if committed <= 0 or committed > len(words):
@@ -108,6 +121,7 @@ class Streamer:
         self.prior_text = ""                 # committed text from trimmed segments
         self.prev_words: list = []
         self.last_pass_samples = 0
+        self.flushed_samples = 0   # buffer length at the last pause flush
         self.inserted_any = False
         self.total_committed = 0
         self.pass_times: list[float] = []
@@ -152,7 +166,16 @@ class Streamer:
         audio = self.recorder.snapshot()
         n = len(audio)
         new = audio[self.last_pass_samples:]
-        if speech_seconds(new, self.sr, self.cfg.silence_rms) < self.cfg.stream_min_speech_s:
+        # A pause after unflushed speech: run a pass and commit everything it heard.
+        flush = (
+            trailing_silence_s(audio, self.sr, self.cfg.silence_rms)
+            >= self.cfg.stream_flush_silence_s
+            and speech_seconds(audio[self.flushed_samples:], self.sr, self.cfg.silence_rms)
+            >= self.cfg.stream_min_speech_s
+        )
+        if not flush and (
+            speech_seconds(new, self.sr, self.cfg.silence_rms) < self.cfg.stream_min_speech_s
+        ):
             return
         t0 = self.clock()
         log.info("stream pass start: %.1fs audio", n / self.sr)
@@ -165,8 +188,13 @@ class Streamer:
         self.pass_times.append(took)
         self.last_pass_samples = n
         cur = [w.text for w in words]
+        holdback = 0 if flush else self.cfg.stream_holdback_words
         target = commit_target(len(self.seg_committed), [w.text for w in self.prev_words],
-                               cur, self.cfg.stream_holdback_words)
+                               cur, holdback)
+        if flush:
+            target = max(target, len(cur))
+            self.flushed_samples = n
+            log.info("pause detected; flushing held-back words")
         newly = cur[len(self.seg_committed):target]
         if newly and self._emit(newly):
             self.seg_committed.extend(newly)
@@ -186,6 +214,7 @@ class Streamer:
         self.seg_committed = []
         self.prev_words = []
         self.last_pass_samples = max(0, n - cut)
+        self.flushed_samples = max(0, self.flushed_samples - cut)
         log.info("buffer trimmed at %.1fs; continuing with %.1fs", cut / self.sr,
                  (n - cut) / self.sr)
 

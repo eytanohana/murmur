@@ -11,6 +11,7 @@ from whisper_dictation.streaming import (
     join_words,
     release_tail,
     speech_seconds,
+    trailing_silence_s,
     trim_sample,
 )
 from whisper_dictation.transcriber import Word
@@ -67,6 +68,13 @@ def test_speech_seconds_counts_loud_frames():
     audio = np.concatenate([np.zeros(SR), np.full(SR // 2, 0.1)]).astype(np.float32)
     assert abs(speech_seconds(audio, SR, 0.005) - 0.5) < 0.03
     assert speech_seconds(np.zeros(SR, dtype=np.float32), SR, 0.005) == 0.0
+
+
+def test_trailing_silence_counts_quiet_frames_at_the_end():
+    audio = np.concatenate([np.full(SR, 0.1), np.zeros(SR // 2)]).astype(np.float32)
+    assert abs(trailing_silence_s(audio, SR, 0.005) - 0.5) < 0.03
+    assert trailing_silence_s(np.full(SR, 0.1, dtype=np.float32), SR, 0.005) == 0.0
+    assert trailing_silence_s(np.zeros(SR, dtype=np.float32), SR, 0.005) == 1.0
 
 
 class FakeRecorder:
@@ -145,9 +153,9 @@ def test_streamer_skips_pass_without_new_speech():
     rec.feed(1.0)
     s.tick()
     assert len(tr.prompts) == 1
-    rec.feed(1.0, level=0.0)
+    rec.feed(0.3, level=0.0)
     s.tick()
-    assert len(tr.prompts) == 1  # silence added, no pass
+    assert len(tr.prompts) == 1  # short silence added, no pass
 
 
 def test_streamer_mismatch_keeps_inserted_text(caplog):
@@ -199,6 +207,50 @@ def test_timestamps_requested_only_for_long_buffers_and_never_for_final():
     assert tr.timestamps[0] is False
     assert tr.timestamps[1] is True
     assert tr.timestamps[-1] is False
+
+
+def test_pause_flushes_held_back_words_while_option_is_held():
+    s, rec, tr, ins = make([
+        ws("hello", "big", "world"),                       # first pass, nothing stable
+        ws("hello", "big", "world", "how", "are", "you"),  # pass after the pause
+    ], stream_holdback_words=2)
+    rec.feed(1.0)
+    s.tick()
+    assert ins.typed == []
+    rec.feed(0.5)                       # speech continues, no pause yet
+    rec.feed(0.8, level=0.0)            # pause longer than stream_flush_silence_s
+    s.tick()
+    assert ins.typed == ["hello big world how are you"]
+    assert s.seg_committed == ["hello", "big", "world", "how", "are", "you"]
+    rec.feed(1.0, level=0.0)
+    s.tick()                            # still silent: no further pass
+    assert len(tr.prompts) == 2
+
+
+def test_short_pause_does_not_flush():
+    s, rec, _, ins = make([ws("a", "b", "c"), ws("a", "b", "c", "d")], stream_holdback_words=2)
+    rec.feed(1.0)
+    s.tick()
+    rec.feed(0.4)
+    rec.feed(0.4, level=0.0)            # below 0.7 s
+    s.tick()
+    assert ins.typed == ["a b"]         # normal stable-prefix commit only
+
+
+def test_flush_never_edits_typed_text_and_release_types_only_new_words():
+    s, rec, _, ins = make([
+        ws("one", "two", "three"),
+        ws("one", "two", "three"),
+        ws("one", "two", "three", "four"),   # final after a later word
+    ], stream_holdback_words=1)
+    rec.feed(1.0)
+    s.tick()
+    rec.feed(0.8, level=0.0)
+    s.tick()
+    assert ins.typed == ["one two three"]
+    rec.feed(0.6)
+    s.finish(rec.audio)
+    assert ins.typed == ["one two three", " four"]
 
 
 def test_cancel_stops_inserting_but_keeps_text():
