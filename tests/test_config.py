@@ -22,3 +22,9 @@ def test_unknown_key_rejected(tmp_path):
     p.write_text("bogus = 1\n")
     with pytest.raises(ValueError):
         load_config(p)
+
+
+def test_streaming_defaults(tmp_path):
+    cfg = load_config(tmp_path / "none.toml")
+    assert cfg.stream is True
+    assert (cfg.stream_interval, cfg.stream_holdback_words, cfg.stream_min_speech_s) == (0.5, 1, 0.3)

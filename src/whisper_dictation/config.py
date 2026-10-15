@@ -28,10 +28,10 @@ class Config:
     menubar: bool = False
     # Streaming: type stable words while Option is held. false = transcribe on release.
     stream: bool = True
-    stream_interval: float = 1.0
-    stream_holdback_words: int = 2
+    stream_interval: float = 0.5
+    stream_holdback_words: int = 1
     stream_trim_s: float = 20.0
-    stream_min_speech_s: float = 0.5
+    stream_min_speech_s: float = 0.3
 
 
 def load_config(path: Path | None = None) -> Config:
