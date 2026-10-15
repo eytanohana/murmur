@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import plistlib
 import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -179,7 +178,3 @@ def main_agent(command: str, args, home: Path | None = None) -> int:
     if command == "uninstall-agent":
         return uninstall(home, dry_run=args.dry_run)
     return status(home)
-
-
-if __name__ == "__main__":
-    sys.exit(main_agent("agent-status", None))

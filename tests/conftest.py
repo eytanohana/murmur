@@ -35,7 +35,7 @@ def make_dictation():
             status,
             clock=clock,
             run_async=False,
-            sound=lambda path, enabled: sounds.append(path),
+            sound=sounds.append,
             schedule=schedule,
         )
         return SimpleNamespace(

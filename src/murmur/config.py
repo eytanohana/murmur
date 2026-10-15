@@ -6,8 +6,7 @@ import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-from .indicator import POSITIONS
-
+POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left", "bottom-right")
 CONFIG_PATH = Path.home() / ".config" / "murmur" / "config.toml"
 
 

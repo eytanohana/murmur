@@ -21,7 +21,8 @@ from collections.abc import Callable
 from typing import Any
 
 from .config import Config
-from .feedback import NullStatus, play_sound
+from .feedback import play_sound
+from .indicator import NullIndicator
 from .streaming import Streamer
 
 log = logging.getLogger("murmur")
@@ -52,14 +53,14 @@ class Dictation:
         status: Any = None,
         clock: Callable[[], float] = time.monotonic,
         run_async: bool = True,
-        sound: Callable[[str, bool], None] = play_sound,
+        sound: Callable[[str], None] = play_sound,
         schedule: Callable[[float, Callable[[], None]], None] = start_timer,
     ):
         self.cfg = cfg
         self.recorder = recorder
         self.transcriber = transcriber
         self.inserter = inserter
-        self.status = status or NullStatus()
+        self.status = status or NullIndicator()
         self.clock = clock
         self.run_async = run_async
         self.sound = sound
@@ -113,7 +114,7 @@ class Dictation:
                 return
         self.status.set("recording")
         if self.cfg.sounds:
-            self.sound(self.cfg.start_sound, True)
+            self.sound(self.cfg.start_sound)
 
     def _discard_streamer(self) -> None:
         if self.streamer:
@@ -142,7 +143,7 @@ class Dictation:
                 return
             self._set_state(State.TRANSCRIBING)
         if self.cfg.sounds:
-            self.sound(self.cfg.stop_sound, True)
+            self.sound(self.cfg.stop_sound)
         streamer, self.streamer = self.streamer, None
         job = self._process_stream if streamer else self._process
         args = (streamer, audio) if streamer else (audio,)

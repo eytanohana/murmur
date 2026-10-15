@@ -90,7 +90,3 @@ class HotkeyListener:
         if self._listener:
             self._listener.stop()
         self._queue.put(None)
-
-    def join(self) -> None:
-        if self._listener:
-            self._listener.join()

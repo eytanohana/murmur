@@ -6,17 +6,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-# Whisper tends to emit these on silent or near-silent audio.
-SILENCE_ARTIFACTS = {
-    "thank you.",
-    "thank you",
-    "thanks for watching.",
-    "thanks for watching!",
-    "you",
-    "bye.",
-    "bye",
-}
-
 
 @dataclass
 class Word:
@@ -29,14 +18,6 @@ def rms(audio: np.ndarray) -> float:
     if audio.size == 0:
         return 0.0
     return float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
-
-
-def clean_text(text: str, clip_rms: float, silence_rms: float) -> str:
-    """Trim the transcript and drop known artifacts, only when the clip is quiet."""
-    text = text.strip()
-    if clip_rms < silence_rms and text.lower() in SILENCE_ARTIFACTS:
-        return ""
-    return text
 
 
 class Transcriber:
@@ -75,7 +56,7 @@ class Transcriber:
         clip_rms = rms(audio)
         if clip_rms < self.silence_rms:
             return ""
-        return clean_text(self._run(audio), clip_rms, self.silence_rms)
+        return self._run(audio).strip()
 
     def transcribe_words(
         self, audio: np.ndarray, initial_prompt: str | None = None, timestamps: bool = True
@@ -90,7 +71,7 @@ class Transcriber:
         if clip_rms < self.silence_rms:
             return []
         result = self._decode(audio, word_timestamps=timestamps, initial_prompt=initial_prompt)
-        text = clean_text(result.get("text", ""), clip_rms, self.silence_rms)
+        text = result.get("text", "").strip()
         if not text:
             return []
         if not timestamps:
