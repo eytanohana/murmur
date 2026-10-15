@@ -20,7 +20,7 @@ import time
 
 import numpy as np
 
-from .transcriber import rms
+from .transcriber import Word, rms
 from .watchdog import watchdog
 
 log = logging.getLogger("whisper_dictation")
@@ -97,13 +97,53 @@ def trailing_silence_s(audio: np.ndarray, sample_rate: int, threshold: float,
     return float(usable.shape[0] - 1 - np.nonzero(loud)[0][-1]) * frame_s
 
 
-def trim_sample(words, committed: int, sample_rate: int, total_samples: int) -> int | None:
-    """Sample index to cut the buffer at: the end of the last committed word."""
+def drop_trailing_silence(audio: np.ndarray, sample_rate: int, threshold: float,
+                          keep_s: float = 0.2) -> np.ndarray:
+    """Cut trailing silence down to `keep_s`. Whisper invents words over long silence."""
+    extra = trailing_silence_s(audio, sample_rate, threshold) - keep_s
+    if extra <= 0:
+        return audio
+    return audio[: audio.size - int(extra * sample_rate)]
+
+
+def drop_leading_silence(audio: np.ndarray, sample_rate: int, threshold: float,
+                         keep_s: float = 0.2) -> tuple[np.ndarray, int]:
+    """Cut leading silence down to `keep_s`. Returns the audio and samples removed.
+
+    Leading silence makes Whisper start with an invented word such as "Okay,".
+    """
+    extra = trailing_silence_s(audio[::-1], sample_rate, threshold) - keep_s
+    if extra <= 0:
+        return audio, 0
+    removed = int(extra * sample_rate)
+    return audio[removed:], removed
+
+
+def trim_sample(words, committed: int, sample_rate: int, total_samples: int,
+                audio: np.ndarray | None = None, threshold: float = 0.005) -> int | None:
+    """Sample index to cut the buffer at, after the last committed word.
+
+    Whisper stretches the end time of a word that is followed by silence into the
+    next word, so cutting at that time can clip the start of the next word. With
+    `audio` given, the cut moves back to the first quiet stretch (60 ms) inside the
+    word's span, when there is one.
+    """
     if committed <= 0 or committed > len(words):
         return None
-    cut = int(words[committed - 1].end * sample_rate)
+    word = words[committed - 1]
+    cut = int(word.end * sample_rate)
     if cut <= 0 or cut >= total_samples:
         return None
+    if audio is not None:
+        frame = int(sample_rate * 0.02)
+        start = int(word.start * sample_rate)
+        span = audio[start:cut]
+        quiet = np.sqrt(np.mean(np.square(
+            span[: span.size // frame * frame].reshape(-1, frame), dtype=np.float64),
+            axis=1)) <= threshold if span.size >= frame else np.zeros(0, dtype=bool)
+        for i in range(5, len(quiet) - 2):  # skip the first 100 ms of the word
+            if quiet[i] and quiet[i + 1] and quiet[i + 2]:
+                return start + i * frame
     return cut
 
 
@@ -182,8 +222,15 @@ class Streamer:
         # Timestamps are only needed on the pass that trims a long buffer.
         need_cut = n / self.sr > self.cfg.stream_trim_s
         with watchdog("streaming pass"):
-            words = self.transcriber.transcribe_words(audio, self._prompt(),
+            # Long trailing silence makes Whisper invent words ("Okay,"), and a flush
+            # would commit them for good.
+            heard = (drop_trailing_silence(audio, self.sr, self.cfg.silence_rms)
+                     if flush else audio)
+            heard, removed = drop_leading_silence(heard, self.sr, self.cfg.silence_rms)
+            words = self.transcriber.transcribe_words(heard, self._prompt(),
                                                       timestamps=need_cut)
+            offset = removed / self.sr
+            words = [Word(w.text, w.start + offset, w.end + offset) for w in words]
         took = self.clock() - t0
         self.pass_times.append(took)
         self.last_pass_samples = n
@@ -201,12 +248,13 @@ class Streamer:
         self.prev_words = words
         log.info("stream pass end: %.2fs, text=%r, %d committed", took, " ".join(cur),
                  self.total_committed)
-        self._maybe_trim(words, n)
+        self._maybe_trim(words, n, audio)
 
-    def _maybe_trim(self, words, n: int) -> None:
+    def _maybe_trim(self, words, n: int, audio: np.ndarray) -> None:
         if n / self.sr <= self.cfg.stream_trim_s:
             return
-        cut = trim_sample(words, len(self.seg_committed), self.sr, n)
+        cut = trim_sample(words, len(self.seg_committed), self.sr, n, audio,
+                          self.cfg.silence_rms)
         if cut is None:
             return
         self.recorder.trim(cut)
@@ -245,7 +293,9 @@ class Streamer:
             t0 = self.clock()
             log.info("final pass start: %.1fs audio", len(final_audio) / self.sr)
             with watchdog("final pass"):
-                words = self.transcriber.transcribe_words(final_audio, self._prompt(),
+                heard = drop_trailing_silence(final_audio, self.sr, self.cfg.silence_rms)
+                heard, _ = drop_leading_silence(heard, self.sr, self.cfg.silence_rms)
+                words = self.transcriber.transcribe_words(heard, self._prompt(),
                                                           timestamps=False)
             log.info("final pass end: text=%r", " ".join(w.text for w in words))
             self.pass_times.append(self.clock() - t0)

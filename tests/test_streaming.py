@@ -8,6 +8,8 @@ from whisper_dictation.streaming import (
     Streamer,
     commit_target,
     common_prefix_len,
+    drop_leading_silence,
+    drop_trailing_silence,
     join_words,
     release_tail,
     speech_seconds,
@@ -62,6 +64,32 @@ def test_trim_sample_cuts_at_last_committed_word():
     assert trim_sample(words, 2, SR, 22 * SR) == 12 * SR
     assert trim_sample(words, 0, SR, 22 * SR) is None
     assert trim_sample(words, 3, SR, 21 * SR) is None  # cut at the end of the buffer
+
+
+def test_trim_sample_moves_back_into_silence_after_a_stretched_word_end():
+    # Speech 0-1 s, silence 1-2.5 s, next word from 2.5 s. Whisper says the word ends at 2.5 s.
+    audio = np.concatenate([np.full(SR, 0.1), np.zeros(int(1.5 * SR))]).astype(np.float32)
+    words = [w("a", 0.0, 2.5)]
+    cut = trim_sample(words, 1, SR, 4 * SR, audio, 0.005)
+    assert abs(cut - SR) <= int(0.03 * SR)
+    assert trim_sample(words, 1, SR, 4 * SR) == int(2.5 * SR)  # no audio given
+
+
+def test_drop_trailing_silence_keeps_a_short_tail():
+    audio = np.concatenate([np.full(SR, 0.1), np.zeros(2 * SR)]).astype(np.float32)
+    out = drop_trailing_silence(audio, SR, 0.005, keep_s=0.2)
+    assert abs(len(out) / SR - 1.2) < 0.03
+    short = np.concatenate([np.full(SR, 0.1), np.zeros(SR // 10)]).astype(np.float32)
+    assert len(drop_trailing_silence(short, SR, 0.005)) == len(short)
+
+
+def test_drop_leading_silence_keeps_a_short_lead_and_reports_removed_samples():
+    audio = np.concatenate([np.zeros(2 * SR), np.full(SR, 0.1)]).astype(np.float32)
+    out, removed = drop_leading_silence(audio, SR, 0.005, keep_s=0.2)
+    assert abs(removed / SR - 1.8) < 0.03
+    assert len(out) == len(audio) - removed
+    same, none = drop_leading_silence(np.full(SR, 0.1, dtype=np.float32), SR, 0.005)
+    assert none == 0 and len(same) == SR
 
 
 def test_speech_seconds_counts_loud_frames():
