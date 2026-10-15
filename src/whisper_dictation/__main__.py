@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
+import sys
 import threading
 import time
 
@@ -56,7 +58,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--test-insert", action="store_true",
                         help="wait 3 s, type a test phrase at the cursor, then exit")
     parser.add_argument("-v", "--verbose", action="store_true")
+    sub = parser.add_subparsers(dest="command", metavar="command")
+    inst = sub.add_parser("install-agent", help="install and start the login LaunchAgent")
+    inst.add_argument("--dry-run", action="store_true", help="print what would happen")
+    inst.add_argument("--no-start", action="store_true",
+                      help="write the plist but do not run launchctl")
+    uninst = sub.add_parser("uninstall-agent", help="stop and remove the LaunchAgent")
+    uninst.add_argument("--dry-run", action="store_true", help="print what would happen")
+    sub.add_parser("agent-status", help="show LaunchAgent state, plist and log paths")
     args = parser.parse_args(argv)
+
+    if args.command:
+        from .agent import main_agent
+
+        sys.exit(main_agent(args.command, args))
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -84,6 +99,8 @@ def main(argv: list[str] | None = None) -> None:
                               dictation.on_other_key, cfg.option_keys)
     listener.start()
     log.info("Ready. Hold Option (%s), speak, release. Ctrl+C to quit.", cfg.option_keys)
+    # launchd stops the agent with SIGTERM; exit cleanly so it is not treated as a crash.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         if status is not None:
             status.run()  # rumps run loop owns the main thread
