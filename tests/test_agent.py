@@ -2,7 +2,19 @@ import plistlib
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from murmur import agent
+
+
+@pytest.fixture(autouse=True)
+def fake_project(tmp_path_factory, monkeypatch):
+    """A project folder with a .venv/bin/python, so the tests do not depend on a real venv."""
+    project = tmp_path_factory.mktemp("project")
+    (project / ".venv" / "bin").mkdir(parents=True)
+    (project / ".venv" / "bin" / "python").write_text("")
+    monkeypatch.setattr(agent, "project_dir", lambda: project)
+    return project
 
 
 class FakeRunner:
@@ -111,7 +123,7 @@ def test_install_reports_a_failed_bootstrap(tmp_path):
 
 
 def test_install_needs_the_project_venv(tmp_path, monkeypatch):
-    monkeypatch.setattr(agent, "project_dir", lambda: tmp_path)
+    monkeypatch.setattr(agent, "project_dir", lambda: tmp_path)  # a folder without a .venv
     lines = []
     assert agent.install(tmp_path / "home", FakeRunner(), out=lines.append) == 1
     assert any("uv sync" in line for line in lines)
