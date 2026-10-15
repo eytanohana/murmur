@@ -18,12 +18,19 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from .config import Config
 from .feedback import play_sound
-from .indicator import NullIndicator
+from .indicator import Indicator, NullIndicator
 from .streaming import Streamer
+
+if TYPE_CHECKING:
+    from .inserter import Inserter
+    from .recorder import Recorder
+    from .transcriber import Transcriber
 
 log = logging.getLogger("murmur")
 
@@ -47,10 +54,10 @@ class Dictation:
     def __init__(
         self,
         cfg: Config,
-        recorder: Any,
-        transcriber: Any,
-        inserter: Any,
-        status: Any = None,
+        recorder: Recorder,
+        transcriber: Transcriber,
+        inserter: Inserter,
+        status: Indicator | None = None,
         clock: Callable[[], float] = time.monotonic,
         run_async: bool = True,
         sound: Callable[[str], None] = play_sound,
@@ -89,7 +96,7 @@ class Dictation:
                 return
             try:
                 self.recorder.start()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  any recorder failure leaves us idle
                 log.error(
                     "Could not start recording (%s). Check Microphone permission "
                     "in System Settings > Privacy & Security.",
@@ -152,7 +159,7 @@ class Dictation:
         else:
             job(*args)
 
-    def _process_stream(self, streamer: Streamer, audio: Any) -> None:
+    def _process_stream(self, streamer: Streamer, audio: np.ndarray) -> None:
         try:
             t0 = self.clock()
             streamer.finish(audio)
@@ -170,7 +177,7 @@ class Dictation:
             with self._lock:
                 self._set_state(State.IDLE)
 
-    def _process(self, audio: Any) -> None:
+    def _process(self, audio: np.ndarray) -> None:
         try:
             t0 = self.clock()
             text = self.transcriber.transcribe(audio)

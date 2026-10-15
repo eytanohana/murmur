@@ -10,6 +10,7 @@ from __future__ import annotations
 import signal
 import threading
 from collections.abc import Callable
+from typing import Protocol
 
 PILL_W, PILL_H, MARGIN = 78.0, 26.0, 6.0
 
@@ -37,6 +38,14 @@ def overlay_origin(frame, visible, size, position: str, margin: float = MARGIN):
         x = vx + vw - w - margin
     y = vy + vh - h - margin if position.startswith("top") else vy + margin
     return x, y
+
+
+class Indicator(Protocol):
+    """What Dictation and main() need from an indicator."""
+
+    def set(self, state: str) -> None: ...
+
+    def run(self) -> None: ...
 
 
 class NullIndicator:

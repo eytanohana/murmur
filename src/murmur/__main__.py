@@ -9,9 +9,9 @@ import threading
 import time
 from pathlib import Path
 
-from .agent import real_python
+from .agent import main_agent, real_python
 from .app import Dictation
-from .config import CONFIG_PATH, load_config
+from .config import CONFIG_PATH, Config, load_config
 from .hotkey import HotkeyListener
 from .indicator import make_indicator
 from .inserter import Inserter, accessibility_trusted
@@ -39,7 +39,7 @@ def check_microphone(sample_rate: int = 16000) -> None:
             callback=lambda indata, *_: chunks.append(indata.copy()),
         ):
             time.sleep(0.5)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  any open failure means no usable microphone
         log.warning(
             "Could not open the microphone (%s). Grant Microphone access to %s in "
             "System Settings > Privacy & Security.",
@@ -87,7 +87,7 @@ def check_permissions() -> None:
     check_microphone()
 
 
-def test_insert(cfg) -> None:
+def test_insert(cfg: Config) -> None:
     """Type a phrase from a worker thread, like the streaming path does."""
     phrase = "hello from murmur"
     if not accessibility_trusted(prompt=True):
@@ -101,7 +101,7 @@ def test_insert(cfg) -> None:
     log.info("Done. If nothing appeared, check Accessibility for your terminal app.")
 
 
-def main(argv: list[str] | None = None) -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="murmur", description=__doc__)
     parser.add_argument(
         "--menubar",
@@ -126,25 +126,11 @@ def main(argv: list[str] | None = None) -> None:
     uninst = sub.add_parser("uninstall-agent", help="stop and remove the LaunchAgent")
     uninst.add_argument("--dry-run", action="store_true", help="print what would happen")
     sub.add_parser("agent-status", help="show LaunchAgent state, plist and log paths")
-    args = parser.parse_args(argv)
+    return parser
 
-    if args.command:
-        from .agent import main_agent
 
-        sys.exit(main_agent(args.command, args))
-
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    cfg = load_config(Path(args.config) if args.config else None)
-    kind = "menubar" if args.menubar else cfg.indicator
-
-    if args.test_insert:
-        test_insert(load_config(Path(args.config) if args.config else None))
-        return
-
+def run_dictation(cfg: Config, kind: str) -> None:
+    """Load the model, start the hotkey listener and hand the main thread to the indicator."""
     check_permissions()
     log.info("Loading model %s ...", cfg.model_repo)
     transcriber = Transcriber(cfg.model_repo, cfg.language, cfg.silence_rms)
@@ -173,6 +159,31 @@ def main(argv: list[str] | None = None) -> None:
         pass
     finally:
         listener.stop()
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+
+    if args.command:
+        sys.exit(main_agent(args.command, args))
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    cfg = load_config(Path(args.config) if args.config else None)
+    kind = "menubar" if args.menubar else cfg.indicator
+
+    if args.test_insert:
+        test_insert(cfg)
+        return
+
+    run_dictation(cfg, kind)
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":

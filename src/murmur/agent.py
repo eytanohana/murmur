@@ -91,6 +91,10 @@ def domain() -> str:
     return f"gui/{os.getuid()}"
 
 
+def service_target() -> str:
+    return f"{domain()}/{LABEL}"
+
+
 def install(
     home: Path,
     runner: Runner = run_command,
@@ -108,7 +112,7 @@ def install(
     if dry_run:
         out(f"[dry run] would write {path}:")
         out(plistlib.dumps(data).decode())
-        out(f"[dry run] would run: launchctl bootout {domain()}/{LABEL} (ignore errors)")
+        out(f"[dry run] would run: launchctl bootout {service_target()} (ignore errors)")
         out(f"[dry run] would run: launchctl bootstrap {domain()} {path}")
         out(permission_instructions(python))
         return 0
@@ -124,7 +128,7 @@ def install(
     if no_start:
         out("Skipped launchctl (--no-start).")
     else:
-        runner(["launchctl", "bootout", f"{domain()}/{LABEL}"])  # replace a loaded copy
+        runner(["launchctl", "bootout", service_target()])  # replace a loaded copy
         result = runner(["launchctl", "bootstrap", domain(), str(path)])
         if result.returncode != 0:
             out(f"launchctl bootstrap failed: {result.stdout}{result.stderr}")
@@ -142,10 +146,10 @@ def uninstall(
 ) -> int:
     path = plist_path(home)
     if dry_run:
-        out(f"[dry run] would run: launchctl bootout {domain()}/{LABEL}")
+        out(f"[dry run] would run: launchctl bootout {service_target()}")
         out(f"[dry run] would delete {path}")
         return 0
-    result = runner(["launchctl", "bootout", f"{domain()}/{LABEL}"])
+    result = runner(["launchctl", "bootout", service_target()])
     if result.returncode == 0:
         out(f"Stopped {LABEL}.")
     else:
@@ -160,7 +164,7 @@ def status(home: Path, runner: Runner = run_command, out: Callable[[str], None] 
     path = plist_path(home)
     out(f"plist: {path} ({'present' if path.exists() else 'missing'})")
     out(f"log:   {log_path(home)}")
-    result = runner(["launchctl", "print", f"{domain()}/{LABEL}"])
+    result = runner(["launchctl", "print", service_target()])
     if result.returncode != 0:
         out("agent: not loaded")
         return 1
