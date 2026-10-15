@@ -6,6 +6,8 @@ import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
 
+from .indicator import POSITIONS
+
 CONFIG_PATH = Path.home() / ".config" / "whisper-dictation" / "config.toml"
 
 
@@ -26,6 +28,11 @@ class Config:
     sounds: bool = False
     start_sound: str = "/System/Library/Sounds/Tink.aiff"
     stop_sound: str = "/System/Library/Sounds/Pop.aiff"
+    # Visible recording indicator: "overlay" (floating pill), "menubar" or "none".
+    indicator: str = "overlay"
+    # Overlay position: top-center, top-left, top-right, bottom-center, bottom-left, bottom-right
+    indicator_position: str = "top-center"
+    # Deprecated alias for indicator = "menubar".
     menubar: bool = False
     # Streaming: type stable words while Option is held. false = transcribe on release.
     stream: bool = True
@@ -53,6 +60,12 @@ def load_config(path: Path | None = None) -> Config:
         setattr(cfg, key, value)
     if cfg.option_keys not in ("left", "right", "both"):
         raise ValueError("option_keys must be 'left', 'right' or 'both'")
+    if cfg.menubar:
+        cfg.indicator = "menubar"
+    if cfg.indicator not in ("none", "menubar", "overlay"):
+        raise ValueError("indicator must be 'none', 'menubar' or 'overlay'")
+    if cfg.indicator_position not in POSITIONS:
+        raise ValueError(f"indicator_position must be one of {POSITIONS}")
     if cfg.insert_mode not in ("paste", "type"):
         raise ValueError("insert_mode must be 'paste' or 'type'")
     return cfg

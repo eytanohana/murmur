@@ -1650,6 +1650,7 @@ dependencies = [
     { name = "mlx-whisper" },
     { name = "numpy" },
     { name = "pynput" },
+    { name = "pyobjc-framework-cocoa" },
     { name = "pyobjc-framework-quartz" },
     { name = "sounddevice" },
 ]
@@ -1670,6 +1671,7 @@ requires-dist = [
     { name = "mlx-whisper", specifier = ">=0.4.3" },
     { name = "numpy", specifier = ">=2.5.4" },
     { name = "pynput", specifier = ">=1.8.2" },
+    { name = "pyobjc-framework-cocoa", specifier = ">=12.2.2" },
     { name = "pyobjc-framework-quartz", specifier = ">=12.2.2" },
     { name = "rumps", marker = "extra == 'menubar'", specifier = ">=0.4.0" },
     { name = "sounddevice", specifier = ">=0.5.6" },

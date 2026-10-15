@@ -7,6 +7,7 @@ dependencies = [
     "mlx-whisper>=0.4.3",
     "numpy>=2.5.4",
     "pynput>=1.8.2",
+    "pyobjc-framework-cocoa>=12.2.2",
     "pyobjc-framework-quartz>=12.2.2",
     "sounddevice>=0.5.6",
 ]
