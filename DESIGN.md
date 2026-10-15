@@ -1,4 +1,4 @@
-# whisper-local design
+# murmur design
 
 Push-to-talk dictation for macOS. Hold the Option key, speak, release; the transcript is typed into whichever app has focus. Everything runs locally.
 
@@ -64,9 +64,9 @@ Both modes post Quartz keyboard events (`CGEventPost`), not pynput's `Controller
 ## Architecture
 
 ```
-src/whisper_dictation/
-  __main__.py     entry point, `python -m whisper_dictation` and `uv run whisper-dictation`
-  config.py       dataclass plus optional ~/.config/whisper-dictation/config.toml
+src/murmur/
+  __main__.py     entry point, `python -m murmur` and `uv run murmur`
+  config.py       dataclass plus optional ~/.config/murmur/config.toml
   hotkey.py       global Option key listener (pynput or Quartz event tap), emits press/release/other-key events
   recorder.py     sounddevice InputStream into a numpy buffer
   transcriber.py  mlx_whisper.transcribe wrapper, model preloaded and warmed at startup
@@ -88,7 +88,7 @@ Notes:
 
 ## Run at login
 
-`whisper-dictation install-agent`, `uninstall-agent` and `agent-status` manage a LaunchAgent (`com.user.whisper-dictation`) built by `agent.py`. It runs the venv python directly so the privacy permission target is one stable binary, restarts only after a non-zero exit, logs to `~/Library/Logs/whisper-dictation.log` and sets `HF_HUB_OFFLINE=1`. Permissions attach to the resolved python binary when there is no terminal; the app requests the prompts at startup and names the binary in warnings. See the README for idle cost and the re-grant steps after a Python upgrade.
+`murmur install-agent`, `uninstall-agent` and `agent-status` manage a LaunchAgent (`com.user.murmur`) built by `agent.py`. It runs the venv python directly so the privacy permission target is one stable binary, restarts only after a non-zero exit, logs to `~/Library/Logs/murmur.log` and sets `HF_HUB_OFFLINE=1`. Permissions attach to the resolved python binary when there is no terminal; the app requests the prompts at startup and names the binary in warnings. See the README for idle cost and the re-grant steps after a Python upgrade.
 
 ## Tooling
 
@@ -103,7 +103,7 @@ Repo is already initialized on branch `main` in this folder. Commit in small, lo
 
 ## Acceptance
 
-- `uv run whisper-dictation` starts, prints that the model is loaded, then dictation works in TextEdit and a browser text field.
+- `uv run murmur` starts, prints that the model is loaded, then dictation works in TextEdit and a browser text field.
 - Timing log per dictation: record duration, transcription time.
 - `uv run pytest` and `uv run ruff check` pass.
 - README covers setup, permissions, config options, and how to swap the model.

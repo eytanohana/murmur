@@ -1,6 +1,6 @@
 import numpy as np
 
-from whisper_dictation.transcriber import Transcriber, clean_text, rms
+from murmur.transcriber import Transcriber, clean_text, rms
 
 
 def test_rms_of_empty_and_constant():

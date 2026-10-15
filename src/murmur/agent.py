@@ -9,7 +9,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-LABEL = "com.user.whisper-dictation"
+LABEL = "com.user.murmur"
 DEFAULT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess]
@@ -33,7 +33,7 @@ def plist_path(home: Path) -> Path:
 
 
 def log_path(home: Path) -> Path:
-    return home / "Library" / "Logs" / "whisper-dictation.log"
+    return home / "Library" / "Logs" / "murmur.log"
 
 
 def build_plist(python: Path, project: Path, home: Path) -> dict:
@@ -46,7 +46,7 @@ def build_plist(python: Path, project: Path, home: Path) -> dict:
     log = str(log_path(home))
     return {
         "Label": LABEL,
-        "ProgramArguments": [str(python), "-m", "whisper_dictation"],
+        "ProgramArguments": [str(python), "-m", "murmur"],
         "WorkingDirectory": str(project),
         "RunAtLoad": True,
         "KeepAlive": {"SuccessfulExit": False},

@@ -2,9 +2,9 @@ import time
 
 import pytest
 
-from whisper_dictation.app import Dictation, State
-from whisper_dictation.config import Config, load_config
-from whisper_dictation.indicator import (
+from murmur.app import Dictation, State
+from murmur.config import Config, load_config
+from murmur.indicator import (
     LOOKS,
     NullIndicator,
     Overlay,

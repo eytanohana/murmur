@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .indicator import POSITIONS
 
-CONFIG_PATH = Path.home() / ".config" / "whisper-dictation" / "config.toml"
+CONFIG_PATH = Path.home() / ".config" / "murmur" / "config.toml"
 
 
 @dataclass

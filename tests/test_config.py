@@ -1,6 +1,6 @@
 import pytest
 
-from whisper_dictation.config import load_config
+from murmur.config import load_config
 
 
 def test_defaults_when_missing(tmp_path):

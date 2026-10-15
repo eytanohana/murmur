@@ -8,7 +8,7 @@ import sys
 import threading
 import traceback
 
-log = logging.getLogger("whisper_dictation")
+log = logging.getLogger("murmur")
 
 
 def dump_threads() -> str:

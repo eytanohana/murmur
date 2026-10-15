@@ -22,7 +22,7 @@ from .config import Config
 from .feedback import NullStatus, play_sound
 from .streaming import Streamer
 
-log = logging.getLogger("whisper_dictation")
+log = logging.getLogger("murmur")
 
 
 class State(enum.Enum):

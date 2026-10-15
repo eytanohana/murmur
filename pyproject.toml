@@ -1,5 +1,5 @@
 [project]
-name = "whisper-dictation"
+name = "murmur"
 version = "0.1.0"
 description = "Local push-to-talk dictation for macOS using Whisper large-v3-turbo on MLX"
 requires-python = ">=3.12"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-whisper-dictation = "whisper_dictation.__main__:main"
+murmur = "murmur.__main__:main"
 
 [project.optional-dependencies]
 menubar = [

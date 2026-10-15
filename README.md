@@ -1,4 +1,4 @@
-# whisper-local
+# murmur
 
 Push-to-talk dictation for macOS. Hold Option and speak; words are typed at the cursor of the focused app as they become stable, and the rest is typed when you release. Transcription runs locally with Whisper large-v3-turbo on MLX. See DESIGN.md for the reasoning.
 
@@ -8,7 +8,7 @@ Requires macOS on Apple Silicon and [uv](https://docs.astral.sh/uv/).
 
 ```
 uv sync
-uv run whisper-dictation
+uv run murmur
 ```
 
 The first run downloads the model (about 1.6 GB) into the Hugging Face cache. Later starts load it in a few seconds. Use `-v` for debug logs.
@@ -31,7 +31,7 @@ The macOS mic indicator does not appear for a LaunchAgent, so the app draws its 
 - `menubar`: a text item ("mic", "REC", "...") in the menu bar via rumps (`uv sync --extra menubar`). `--menubar` and `menubar = true` are aliases. It permanently uses menu bar space, and macOS hides status items that do not fit next to the notch. On the development Mac the item was created but macOS did not put it on screen because the bar was full, which is why the overlay is the default.
 - `none`: no indicator.
 
-AppKit runs on the main thread and dictation on other threads. The app uses the accessory activation policy, so there is no Dock icon. On startup the menu bar variant activates once (a rumps default). SIGTERM and Ctrl+C end the app with exit status 0 under both indicators. After changing `indicator` under the agent, run `launchctl kickstart -k gui/$(id -u)/com.user.whisper-dictation`.
+AppKit runs on the main thread and dictation on other threads. The app uses the accessory activation policy, so there is no Dock icon. On startup the menu bar variant activates once (a rumps default). SIGTERM and Ctrl+C end the app with exit status 0 under both indicators. After changing `indicator` under the agent, run `launchctl kickstart -k gui/$(id -u)/com.user.murmur`.
 
 ## Run at login
 
@@ -39,23 +39,23 @@ A LaunchAgent starts dictation at login and keeps it running; hold Option anywhe
 
 ```
 uv sync
-uv run whisper-dictation install-agent --dry-run   # print the plist and commands only
-uv run whisper-dictation install-agent             # write the plist, lint it, start the agent
-uv run whisper-dictation agent-status
-uv run whisper-dictation uninstall-agent
+uv run murmur install-agent --dry-run   # print the plist and commands only
+uv run murmur install-agent             # write the plist, lint it, start the agent
+uv run murmur agent-status
+uv run murmur uninstall-agent
 ```
 
-`install-agent` writes `~/Library/LaunchAgents/com.user.whisper-dictation.plist` and runs `launchctl bootstrap gui/$UID`. The agent runs `.venv/bin/python -m whisper_dictation` directly (not `uv run`) from the project folder, with `RunAtLoad`, `ProcessType Interactive`, and `KeepAlive` set to restart only after a crash (non-zero exit); a clean exit or Ctrl+C-style stop stays stopped. `HF_HUB_OFFLINE=1` is set so login does not need the network; run the app once in a terminal after changing `model_repo` so the new model is downloaded. `--no-start` writes the plist without running launchctl.
+`install-agent` writes `~/Library/LaunchAgents/com.user.murmur.plist` and runs `launchctl bootstrap gui/$UID`. The agent runs `.venv/bin/python -m murmur` directly (not `uv run`) from the project folder, with `RunAtLoad`, `ProcessType Interactive`, and `KeepAlive` set to restart only after a crash (non-zero exit); a clean exit or Ctrl+C-style stop stays stopped. `HF_HUB_OFFLINE=1` is set so login does not need the network; run the app once in a terminal after changing `model_repo` so the new model is downloaded. `--no-start` writes the plist without running launchctl.
 
-**Logs:** `tail -f ~/Library/Logs/whisper-dictation.log` (stdout and stderr, including permission warnings).
+**Logs:** `tail -f ~/Library/Logs/murmur.log` (stdout and stderr, including permission warnings).
 
-**After editing the config:** `launchctl kickstart -k gui/$(id -u)/com.user.whisper-dictation`
+**After editing the config:** `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
 
 **Permissions:** with no terminal attached, macOS attributes the permissions to the Python binary itself, not to your terminal. `install-agent` prints its path after installing, with symlinks resolved (for example `~/.local/share/uv/python/cpython-3.12.x-macos-aarch64-none/bin/python3.12`). In System Settings > Privacy & Security add that binary to Accessibility, Input Monitoring and Microphone (click +, press Cmd+Shift+G, paste the path), then run the kickstart command above. At startup the app requests the prompts for itself and warns in the log, naming the binary, when Accessibility or Input Monitoring is missing or the microphone returns only silence.
 
-**After a Python upgrade:** uv-managed Python lives in a versioned folder, so a new patch release is a new binary and loses the grants. Run `uv run whisper-dictation install-agent` again to print the new path, add it to the three lists, remove the stale entry, and kickstart. The trade-off: this path is stable until uv upgrades Python for the project (`uv python pin` or a fixed `.python-version` such as 3.12.13 limits that), whereas a system or Homebrew Python resolves to a versioned path as well, and a signed app bundle would give a permanent identity at the cost of packaging work this project does not do.
+**After a Python upgrade:** uv-managed Python lives in a versioned folder, so a new patch release is a new binary and loses the grants. Run `uv run murmur install-agent` again to print the new path, add it to the three lists, remove the stale entry, and kickstart. The trade-off: this path is stable until uv upgrades Python for the project (`uv python pin` or a fixed `.python-version` such as 3.12.13 limits that), whereas a system or Homebrew Python resolves to a versioned path as well, and a signed app bundle would give a permanent identity at the cost of packaging work this project does not do.
 
-**Idle cost** with large-v3-turbo loaded, measured on the M4 Pro as a normal foreground process (`.venv/bin/python -m whisper_dictation`, no input):
+**Idle cost** with large-v3-turbo loaded, measured on the M4 Pro as a normal foreground process (`.venv/bin/python -m murmur`, no input):
 
 | Measure | Value |
 | --- | --- |
@@ -70,10 +70,10 @@ The footprint peak includes MLX's GPU buffer cache growing across passes of diff
 ## Checking insertion without the microphone
 
 ```
-uv run whisper-dictation --test-insert
+uv run murmur --test-insert
 ```
 
-Click into a text field (TextEdit) within 3 seconds. It types "hello from whisper-dictation" from a worker thread, the same way streaming does. If nothing appears, the log says whether Accessibility is missing; macOS drops posted key events silently without it.
+Click into a text field (TextEdit) within 3 seconds. It types "hello from murmur" from a worker thread, the same way streaming does. If nothing appears, the log says whether Accessibility is missing; macOS drops posted key events silently without it.
 
 ## Behavior
 
@@ -89,7 +89,7 @@ Streaming is on by default. While Option is held, the buffer is re-transcribed a
 
 ## Config
 
-Optional file at `~/.config/whisper-dictation/config.toml`. Any key can be omitted.
+Optional file at `~/.config/murmur/config.toml`. Any key can be omitted.
 
 | Key | Default | Meaning |
 | --- | --- | --- |

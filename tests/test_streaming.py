@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from whisper_dictation.app import Dictation, State
-from whisper_dictation.config import Config
-from whisper_dictation.streaming import (
+from murmur.app import Dictation, State
+from murmur.config import Config
+from murmur.streaming import (
     Streamer,
     commit_target,
     common_prefix_len,
@@ -16,7 +16,7 @@ from whisper_dictation.streaming import (
     trailing_silence_s,
     trim_sample,
 )
-from whisper_dictation.transcriber import Word
+from murmur.transcriber import Word
 
 SR = 16000
 
@@ -197,7 +197,7 @@ def test_streamer_mismatch_keeps_inserted_text(caplog):
     rec.feed(1.0)
     s.tick()
     assert ins.typed == ["a b c"]
-    with caplog.at_level("WARNING", logger="whisper_dictation"):
+    with caplog.at_level("WARNING", logger="murmur"):
         s.finish(rec.audio)
     assert ins.typed == ["a b c", " d e"]
     assert "disagrees" in caplog.text

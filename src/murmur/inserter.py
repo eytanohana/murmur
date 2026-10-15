@@ -18,7 +18,7 @@ import Quartz
 
 from .watchdog import watchdog
 
-log = logging.getLogger("whisper_dictation")
+log = logging.getLogger("murmur")
 
 CHUNK_UNITS = 20  # UTF-16 code units per synthetic key event
 KEYCODE_V = 9

@@ -2,7 +2,7 @@ from unittest import mock
 
 import numpy as np
 
-from whisper_dictation import __main__ as cli
+from murmur import __main__ as cli
 
 
 class FakeStream:
@@ -22,7 +22,7 @@ def run_check(stream_factory, caplog):
     with (
         mock.patch("sounddevice.InputStream", stream_factory),
         mock.patch.object(cli.time, "sleep"),
-        caplog.at_level("WARNING", logger="whisper_dictation"),
+        caplog.at_level("WARNING", logger="murmur"),
     ):
         cli.check_microphone()
 

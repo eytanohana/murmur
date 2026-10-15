@@ -1,4 +1,4 @@
-"""Entry point: `uv run whisper-dictation` or `python -m whisper_dictation`."""
+"""Entry point: `uv run murmur` or `python -m murmur`."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .inserter import Inserter, accessibility_trusted
 from .recorder import Recorder
 from .transcriber import Transcriber
 
-log = logging.getLogger("whisper_dictation")
+log = logging.getLogger("murmur")
 
 
 def check_microphone(sample_rate: int = 16000) -> None:
@@ -72,7 +72,7 @@ def check_permissions() -> None:
 
 def test_insert(cfg) -> None:
     """Type a phrase from a worker thread, like the streaming path does."""
-    phrase = "hello from whisper-dictation"
+    phrase = "hello from murmur"
     if not accessibility_trusted(prompt=True):
         log.warning("Accessibility is not granted; the text will probably not appear.")
     log.info("Click into a text field now. Typing in 3 seconds ...")
@@ -85,7 +85,7 @@ def test_insert(cfg) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="whisper-dictation", description=__doc__)
+    parser = argparse.ArgumentParser(prog="murmur", description=__doc__)
     parser.add_argument("--menubar", action="store_true",
                         help="alias for indicator = \"menubar\" (overrides the config)")
     parser.add_argument("--config", type=str, default=None, help=f"config path (default {CONFIG_PATH})")

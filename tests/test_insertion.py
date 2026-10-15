@@ -5,9 +5,9 @@ from unittest import mock
 import pytest
 from pynput.keyboard import Key, KeyCode
 
-from whisper_dictation import inserter
-from whisper_dictation.hotkey import HotkeyListener
-from whisper_dictation.watchdog import watchdog
+from murmur import inserter
+from murmur.hotkey import HotkeyListener
+from murmur.watchdog import watchdog
 
 
 def test_utf16_chunks_respect_limit_and_pairs():
@@ -53,7 +53,7 @@ def test_type_text_warns_once_without_accessibility(caplog):
     with (
         mock.patch.object(inserter, "accessibility_trusted", return_value=False),
         mock.patch.object(inserter, "post_text", return_value=2),
-        caplog.at_level("INFO", logger="whisper_dictation"),
+        caplog.at_level("INFO", logger="murmur"),
     ):
         ins.type_text("hi")
         ins.type_text("again")
@@ -93,14 +93,14 @@ def test_callbacks_run_off_the_listener_thread_and_do_not_block_it():
 
 
 def test_watchdog_logs_when_step_is_slow(caplog):
-    with caplog.at_level("ERROR", logger="whisper_dictation"), watchdog("slow step", 0.05):
+    with caplog.at_level("ERROR", logger="murmur"), watchdog("slow step", 0.05):
         time.sleep(0.2)
     assert "slow step has taken over" in caplog.text
     assert "thread MainThread" in caplog.text
 
 
 def test_watchdog_quiet_when_fast(caplog):
-    with caplog.at_level("ERROR", logger="whisper_dictation"), watchdog("fast", 0.5):
+    with caplog.at_level("ERROR", logger="murmur"), watchdog("fast", 0.5):
         pass
     assert caplog.text == ""
 

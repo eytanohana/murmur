@@ -2,7 +2,7 @@ import plistlib
 import subprocess
 from pathlib import Path
 
-from whisper_dictation import agent
+from murmur import agent
 
 
 class FakeRunner:
@@ -19,14 +19,14 @@ class FakeRunner:
 def test_plist_contents(tmp_path):
     python = Path("/proj/.venv/bin/python")
     data = agent.build_plist(python, Path("/proj"), tmp_path)
-    assert data["Label"] == "com.user.whisper-dictation"
-    assert data["ProgramArguments"] == ["/proj/.venv/bin/python", "-m", "whisper_dictation"]
+    assert data["Label"] == "com.user.murmur"
+    assert data["ProgramArguments"] == ["/proj/.venv/bin/python", "-m", "murmur"]
     assert "uv" not in data["ProgramArguments"]
     assert data["WorkingDirectory"] == "/proj"
     assert data["RunAtLoad"] is True
     assert data["KeepAlive"] == {"SuccessfulExit": False}  # restart on crash only
     assert data["ProcessType"] == "Interactive"
-    log = str(tmp_path / "Library" / "Logs" / "whisper-dictation.log")
+    log = str(tmp_path / "Library" / "Logs" / "murmur.log")
     assert data["StandardOutPath"] == data["StandardErrorPath"] == log
     assert data["EnvironmentVariables"]["PATH"].startswith("/proj/.venv/bin:")
     plistlib.dumps(data)  # serializes
@@ -52,7 +52,7 @@ def test_install_dry_run_writes_nothing_and_runs_nothing(tmp_path):
     assert agent.install(tmp_path, runner, dry_run=True, out=lines.append) == 0
     assert runner.calls == []
     assert not agent.plist_path(tmp_path).exists()
-    assert any("com.user.whisper-dictation" in line for line in lines)
+    assert any("com.user.murmur" in line for line in lines)
 
 
 def test_install_no_start_skips_launchctl(tmp_path):

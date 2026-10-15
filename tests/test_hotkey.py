@@ -1,6 +1,6 @@
 from pynput.keyboard import Key, KeyCode
 
-from whisper_dictation.hotkey import HotkeyListener
+from murmur.hotkey import HotkeyListener
 
 
 def make(option_keys="both"):

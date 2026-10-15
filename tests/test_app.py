@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from whisper_dictation.app import Dictation, State
-from whisper_dictation.config import Config
+from murmur.app import Dictation, State
+from murmur.config import Config
 
 
 class FakeRecorder:

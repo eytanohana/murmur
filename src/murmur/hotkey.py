@@ -18,7 +18,7 @@ from collections.abc import Callable
 
 from pynput import keyboard
 
-log = logging.getLogger("whisper_dictation")
+log = logging.getLogger("murmur")
 
 LEFT = keyboard.Key.alt_l
 RIGHT = keyboard.Key.alt_r

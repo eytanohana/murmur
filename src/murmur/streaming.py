@@ -23,7 +23,7 @@ import numpy as np
 from .transcriber import Word, rms
 from .watchdog import watchdog
 
-log = logging.getLogger("whisper_dictation")
+log = logging.getLogger("murmur")
 
 
 def norm(word: str) -> str:

@@ -11,7 +11,7 @@ import logging
 import signal
 from collections.abc import Callable
 
-log = logging.getLogger("whisper_dictation")
+log = logging.getLogger("murmur")
 
 POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left",
              "bottom-right")
@@ -168,7 +168,7 @@ class MenubarIndicator:
         import rumps
 
         self.rumps = rumps
-        self.item = rumps.App("whisper-dictation", title=MENUBAR_TITLES["idle"],
+        self.item = rumps.App("murmur", title=MENUBAR_TITLES["idle"],
                               quit_button="Quit")
 
     def _apply(self, state: str) -> None:
