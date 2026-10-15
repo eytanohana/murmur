@@ -52,7 +52,10 @@ class Dictation:
 
     def _set_state(self, state: State) -> None:
         self.state = state
-        self.status.set(state.value)
+        # The indicator shows "recording" only once the hold threshold passes
+        # (see _threshold_passed), not at key down.
+        if state is not State.RECORDING:
+            self.status.set(state.value)
 
     def on_press(self) -> None:
         with self._lock:
@@ -74,18 +77,19 @@ class Dictation:
                                          self.inserter, self.clock)
                 self.streamer.start()
             self._press_id += 1
-            if self.cfg.sounds:
-                # The start sound marks that the hold threshold passed, not the key down.
-                timer = threading.Timer(self.cfg.min_hold_ms / 1000, self._threshold_passed,
-                                        args=(self._press_id,))
-                timer.daemon = True
-                timer.start()
+            # Marks that the hold threshold passed (indicator and optional sound).
+            timer = threading.Timer(self.cfg.min_hold_ms / 1000, self._threshold_passed,
+                                    args=(self._press_id,))
+            timer.daemon = True
+            timer.start()
 
     def _threshold_passed(self, press_id: int) -> None:
         with self._lock:
             if self.state is not State.RECORDING or press_id != self._press_id:
                 return
-        self.sound(self.cfg.start_sound, True)
+        self.status.set("recording")
+        if self.cfg.sounds:
+            self.sound(self.cfg.start_sound, True)
 
     def on_other_key(self) -> None:
         with self._lock:

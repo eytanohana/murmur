@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import signal
 import sys
 import threading
 import time
@@ -13,8 +12,8 @@ from pathlib import Path
 from .agent import real_python
 from .app import Dictation
 from .config import CONFIG_PATH, load_config
-from .feedback import make_menubar_status
 from .hotkey import HotkeyListener
+from .indicator import make_indicator
 from .inserter import Inserter, accessibility_trusted
 from .recorder import Recorder
 from .transcriber import Transcriber
@@ -87,7 +86,8 @@ def test_insert(cfg) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="whisper-dictation", description=__doc__)
-    parser.add_argument("--menubar", action="store_true", help="show a menu bar status item")
+    parser.add_argument("--menubar", action="store_true",
+                        help="alias for indicator = \"menubar\" (overrides the config)")
     parser.add_argument("--config", type=str, default=None, help=f"config path (default {CONFIG_PATH})")
     parser.add_argument("--test-insert", action="store_true",
                         help="wait 3 s, type a test phrase at the cursor, then exit")
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     cfg = load_config(Path(args.config) if args.config else None)
-    use_menubar = args.menubar or cfg.menubar
+    kind = "menubar" if args.menubar else cfg.indicator
 
     if args.test_insert:
         test_insert(load_config(Path(args.config) if args.config else None))
@@ -123,22 +123,19 @@ def main(argv: list[str] | None = None) -> None:
     transcriber.warm_up(cfg.sample_rate)
     log.info("Model loaded and warmed in %.1fs", time.monotonic() - t0)
 
-    status = make_menubar_status() if use_menubar else None
+    indicator = make_indicator(kind, cfg.indicator_position)
     recorder = Recorder(cfg.sample_rate, cfg.max_record_s)
     inserter = Inserter(cfg.insert_mode, cfg.paste_restore_delay_ms)
-    dictation = Dictation(cfg, recorder, transcriber, inserter, status)
+    dictation = Dictation(cfg, recorder, transcriber, inserter, indicator)
     listener = HotkeyListener(dictation.on_press, dictation.on_release,
                               dictation.on_other_key, cfg.option_keys)
     listener.start()
-    log.info("Ready. Hold Option (%s), speak, release. Ctrl+C to quit.", cfg.option_keys)
-    # launchd stops the agent with SIGTERM; exit cleanly so it is not treated as a crash.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    log.info("Ready. Hold Option (%s) for %.1f s, speak, release. Indicator: %s. Ctrl+C to quit.",
+             cfg.option_keys, cfg.min_hold_ms / 1000, kind)
     try:
-        if status is not None:
-            status.run()  # rumps run loop owns the main thread
-        else:
-            threading.Event().wait()
-    except KeyboardInterrupt:
+        # The indicator owns the main thread (AppKit); SIGTERM and SIGINT end it with status 0.
+        indicator.run()
+    except (KeyboardInterrupt, SystemExit):
         pass
     finally:
         listener.stop()
