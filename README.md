@@ -68,7 +68,7 @@ Optional file at `~/.config/whisper-dictation/config.toml`. Any key can be omitt
 
 ## Troubleshooting
 
-Logs go to the terminal at INFO level: Option down and up, every streaming pass with its text, and every insert with the text and the number of key events posted. If a pass or an insert runs longer than 10 s, all thread stacks are dumped to stderr; include that in a bug report.
+Logs go to the terminal at INFO level: Option down and up, every streaming pass with its text, and every insert with the text and the number of key events posted. If a pass or an insert runs longer than 10 s, all thread stacks are logged as an error; include that in a bug report.
 
 Text is typed with Quartz keyboard events (flags cleared, 20 UTF-16 units per event), so a held Option key does not alter the characters. Key events injected by software never cancel a recording.
 

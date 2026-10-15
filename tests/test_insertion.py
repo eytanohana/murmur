@@ -96,6 +96,7 @@ def test_watchdog_logs_when_step_is_slow(caplog):
     with caplog.at_level("ERROR", logger="whisper_dictation"), watchdog("slow step", 0.05):
         time.sleep(0.2)
     assert "slow step has taken over" in caplog.text
+    assert "thread MainThread" in caplog.text
 
 
 def test_watchdog_quiet_when_fast(caplog):

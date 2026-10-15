@@ -3,27 +3,40 @@
 from __future__ import annotations
 
 import contextlib
-import faulthandler
 import logging
+import sys
 import threading
+import traceback
 
 log = logging.getLogger("whisper_dictation")
 
 
+def dump_threads() -> str:
+    names = {t.ident: t.name for t in threading.enumerate()}
+    parts = []
+    for ident, frame in sys._current_frames().items():
+        stack = "".join(traceback.format_stack(frame))
+        parts.append(f"--- thread {names.get(ident, ident)} ---\n{stack}")
+    return "\n".join(parts)
+
+
+def _fire(label: str, seconds: float) -> None:
+    log.error("%s has taken over %.0fs; thread stacks follow\n%s", label, seconds,
+              dump_threads())
+
+
 @contextlib.contextmanager
 def watchdog(label: str, seconds: float = 10.0):
-    """Dump all thread stacks to stderr if the block takes longer than `seconds`.
+    """Log every thread's stack if the block takes longer than `seconds`.
 
-    faulthandler keeps one timer per process, so nested use replaces the outer
-    timer. The steps guarded here (a streaming pass, an insert) run one at a time.
+    This uses a plain timer thread rather than faulthandler: faulthandler keeps
+    one process-wide timer, which nested or concurrent use replaces, and its
+    cancel call can race with an expiring timer.
     """
-    message = f"{label} has taken over {seconds:.0f}s; dumping thread stacks to stderr"
-    timer = threading.Timer(seconds, log.error, args=(message,))
+    timer = threading.Timer(seconds, _fire, args=(label, seconds))
     timer.daemon = True
     timer.start()
-    faulthandler.dump_traceback_later(seconds, exit=False)
     try:
         yield
     finally:
-        faulthandler.cancel_dump_traceback_later()
         timer.cancel()
