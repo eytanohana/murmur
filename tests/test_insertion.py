@@ -1,37 +1,28 @@
-import threading
-import time
 from unittest import mock
 
-import pytest
-from pynput.keyboard import Key, KeyCode
-
 from murmur import inserter
-from murmur.hotkey import HotkeyListener
-from murmur.watchdog import watchdog
 
 
-def test_utf16_chunks_respect_limit_and_pairs():
-    chunks = inserter.utf16_chunks("a" * 45)
-    assert [len(c) for c in chunks] == [20, 20, 5]
+def test_utf16_chunks_respect_the_limit_and_surrogate_pairs():
+    assert [len(c) for c in inserter.utf16_chunks("a" * 45)] == [20, 20, 5]
     emoji = inserter.utf16_chunks("\U0001f600" * 11)
     assert all(len(c.encode("utf-16-le")) // 2 <= 20 for c in emoji)
     assert "".join(emoji) == "\U0001f600" * 11
     assert inserter.utf16_chunks("") == []
 
 
-def test_post_text_clears_flags_and_chunks():
+def capture_posts():
     calls = []
-    with (
-        mock.patch.object(inserter, "_source", return_value="src"),
-        mock.patch.object(
-            inserter,
-            "_post",
-            side_effect=lambda src, kc, down, flags, text=None: calls.append(
-                (kc, down, flags, text)
-            ),
-        ),
-        mock.patch.object(inserter.time, "sleep"),
-    ):
+    return calls, mock.patch.object(
+        inserter,
+        "_post",
+        side_effect=lambda src, kc, down, flags, text=None: calls.append((kc, down, flags, text)),
+    )
+
+
+def test_post_text_chunks_text_and_clears_modifier_flags():
+    calls, post = capture_posts()
+    with mock.patch.object(inserter, "_source"), post, mock.patch.object(inserter.time, "sleep"):
         posted = inserter.post_text("x" * 25)
     assert posted == 4
     assert all(flags == 0 for _, _, flags, _ in calls)
@@ -39,21 +30,34 @@ def test_post_text_clears_flags_and_chunks():
     assert [c[1] for c in calls] == [True, False, True, False]
 
 
-def test_paste_sends_only_command_flag():
-    calls = []
-    with (
-        mock.patch.object(inserter, "_source", return_value="src"),
-        mock.patch.object(
-            inserter,
-            "_post",
-            side_effect=lambda src, kc, down, flags, text=None: calls.append((kc, down, flags)),
-        ),
-    ):
+def test_post_text_sends_return_for_a_newline():
+    calls, post = capture_posts()
+    with mock.patch.object(inserter, "_source"), post, mock.patch.object(inserter.time, "sleep"):
+        inserter.post_text("\n")
+    assert [(c[0], c[3]) for c in calls] == [(inserter.KEYCODE_RETURN, None)] * 2
+
+
+def test_paste_shortcut_carries_only_the_command_flag():
+    calls, post = capture_posts()
+    with mock.patch.object(inserter, "_source"), post:
         inserter.post_cmd_v()
-    assert calls == [
-        (9, True, inserter.Quartz.kCGEventFlagMaskCommand),
-        (9, False, inserter.Quartz.kCGEventFlagMaskCommand),
-    ]
+    command = inserter.Quartz.kCGEventFlagMaskCommand
+    assert [(c[0], c[1], c[2]) for c in calls] == [(9, True, command), (9, False, command)]
+
+
+def test_post_applies_the_flags_to_the_event():
+    quartz = inserter.Quartz
+    with (
+        mock.patch.object(quartz, "CGEventCreateKeyboardEvent", return_value="ev") as create,
+        mock.patch.object(quartz, "CGEventKeyboardSetUnicodeString") as set_text,
+        mock.patch.object(quartz, "CGEventSetFlags") as set_flags,
+        mock.patch.object(quartz, "CGEventPost") as post,
+    ):
+        inserter._post("src", 0, True, 0, "hé")
+    create.assert_called_once_with("src", 0, True)
+    set_text.assert_called_once_with("ev", 2, "hé")
+    set_flags.assert_called_once_with("ev", 0)
+    post.assert_called_once_with(quartz.kCGHIDEventTap, "ev")
 
 
 def test_type_text_warns_once_without_accessibility(caplog):
@@ -69,55 +73,40 @@ def test_type_text_warns_once_without_accessibility(caplog):
     assert "insert (type) 'hi'" in caplog.text
 
 
-def test_injected_keys_do_not_cancel():
-    events = []
-    h = HotkeyListener(
-        lambda: events.append("press"),
-        lambda: events.append("release"),
-        lambda: events.append("other"),
-    )
-    h.handle_press(Key.alt_l)
-    h.handle_press(KeyCode.from_char("a"), injected=True)
-    h.handle_press(KeyCode.from_char("a"), injected=False)
-    assert events == ["press", "other"]
+def test_empty_text_posts_nothing():
+    with mock.patch.object(inserter, "post_text") as post:
+        inserter.Inserter().type_text("")
+        inserter.Inserter("type").insert("")
+    post.assert_not_called()
 
 
-def test_callbacks_run_off_the_listener_thread_and_do_not_block_it():
-    gate = threading.Event()
-    ran_on = []
-
-    def slow_press():
-        ran_on.append(threading.current_thread())
-        gate.wait(5)
-
-    h = HotkeyListener(slow_press, lambda: None, lambda: None)
-    # Same wiring as start(), without a real pynput listener.
-    h._dispatch = h._queue.put
-    threading.Thread(target=h._worker, daemon=True).start()
-    t0 = time.monotonic()
-    h.handle_press(Key.alt_l)  # must return immediately although the callback blocks
-    assert time.monotonic() - t0 < 0.5
-    time.sleep(0.1)
-    assert ran_on and ran_on[0] is not threading.current_thread()
-    gate.set()
-    h._queue.put(None)
+def test_insert_dispatches_on_mode():
+    with (
+        mock.patch.object(inserter, "accessibility_trusted", return_value=True),
+        mock.patch.object(inserter, "post_text", return_value=2) as typed,
+        mock.patch.object(inserter, "post_cmd_v") as pasted,
+        mock.patch.object(inserter, "get_clipboard", return_value=b"old"),
+        mock.patch.object(inserter, "set_clipboard"),
+        mock.patch.object(inserter.time, "sleep"),
+    ):
+        inserter.Inserter("type").insert("hi")
+        typed.assert_called_once_with("hi")
+        pasted.assert_not_called()
+        inserter.Inserter("paste").insert("yo")
+        pasted.assert_called_once()
+        typed.assert_called_once()  # paste mode does not type
 
 
-def test_watchdog_logs_when_step_is_slow(caplog):
-    with caplog.at_level("ERROR", logger="murmur"), watchdog("slow step", 0.05):
-        time.sleep(0.2)
-    assert "slow step has taken over" in caplog.text
-    assert "thread MainThread" in caplog.text
-
-
-def test_watchdog_quiet_when_fast(caplog):
-    with caplog.at_level("ERROR", logger="murmur"), watchdog("fast", 0.5):
-        pass
-    assert caplog.text == ""
-
-
-@pytest.mark.parametrize("text", ["", None])
-def test_empty_insert_does_nothing(text):
-    with mock.patch.object(inserter, "post_text") as p:
-        inserter.Inserter().type_text(text or "")
-    p.assert_not_called()
+def test_paste_sets_the_transcript_then_restores_the_previous_clipboard():
+    order = []
+    with (
+        mock.patch.object(inserter, "accessibility_trusted", return_value=True),
+        mock.patch.object(inserter, "get_clipboard", return_value=b"previous"),
+        mock.patch.object(
+            inserter, "set_clipboard", side_effect=lambda d: order.append(("set", d))
+        ),
+        mock.patch.object(inserter, "post_cmd_v", side_effect=lambda: order.append(("paste",))),
+        mock.patch.object(inserter.time, "sleep"),
+    ):
+        inserter.Inserter("paste").insert("héllo")
+    assert order == [("set", "héllo".encode()), ("paste",), ("set", b"previous")]

@@ -1,28 +1,16 @@
-from types import SimpleNamespace
+"""Word-level commit logic and the Streamer pass loop."""
 
-import numpy as np
+from __future__ import annotations
 
-from murmur.app import Dictation, State
-from murmur.config import Config
-from murmur.streaming import (
-    Streamer,
-    commit_target,
-    common_prefix_len,
-    drop_leading_silence,
-    drop_trailing_silence,
-    join_words,
-    release_tail,
-    speech_seconds,
-    trailing_silence_s,
-    trim_sample,
-)
-from murmur.transcriber import Word
+import logging
+import threading
 
-SR = 16000
+import pytest
 
+from helpers import SR, tone, w, ws
+from murmur.streaming import commit_target, common_prefix_len, join_words, release_tail
 
-def w(text, start=0.0, end=0.0):
-    return Word(text, start, end)
+# ---- pure word logic -------------------------------------------------------
 
 
 def test_common_prefix_ignores_case_and_punctuation():
@@ -31,7 +19,7 @@ def test_common_prefix_ignores_case_and_punctuation():
     assert common_prefix_len([], ["a"]) == 0
 
 
-def test_commit_target_requires_two_passes_and_holds_back():
+def test_commit_target_needs_two_matching_passes_and_holds_back():
     prev = ["a", "b", "c", "d"]
     cur = ["a", "b", "c", "d", "e"]
     assert commit_target(0, prev, cur, holdback=2) == 3
@@ -39,128 +27,29 @@ def test_commit_target_requires_two_passes_and_holds_back():
     assert commit_target(0, prev, cur, holdback=0) == 4
 
 
-def test_join_words_attaches_split_tokens():
-    assert join_words(["the", "on", "-call", "handbook,", "ok"]) == "the on-call handbook, ok"
-
-
 def test_commit_target_never_goes_backwards():
     assert commit_target(3, ["a", "x"], ["a", "x", "y"], holdback=1) == 3
 
 
-def test_release_tail_appends_words_after_prefix():
-    tail, mismatch = release_tail(["a", "b"], ["a", "b", "c", "d"])
-    assert tail == ["c", "d"] and not mismatch
+def test_join_words_attaches_split_tokens():
+    assert join_words(["the", "on", "-call", "handbook,", "ok"]) == "the on-call handbook, ok"
+
+
+def test_release_tail_appends_words_after_the_prefix():
+    assert release_tail(["a", "b"], ["a", "b", "c", "d"]) == (["c", "d"], False)
+    assert release_tail(["a", "b"], ["A", "b.", "c"]) == (["c"], False)  # case and punctuation
 
 
 def test_release_tail_mismatch_keeps_prefix_and_appends_tail():
-    tail, mismatch = release_tail(["a", "b"], ["a", "z", "c"])
-    assert tail == ["c"] and mismatch
-    tail, mismatch = release_tail(["a", "b", "c"], ["a"])
-    assert tail == [] and mismatch
+    assert release_tail(["a", "b"], ["a", "z", "c"]) == (["c"], True)
+    assert release_tail(["a", "b", "c"], ["a"]) == ([], True)  # final is shorter than the prefix
 
 
-def test_trim_sample_cuts_at_last_committed_word():
-    words = [w("a", 0, 5.0), w("b", 5.0, 12.0), w("c", 12.0, 21.0)]
-    assert trim_sample(words, 2, SR, 22 * SR) == 12 * SR
-    assert trim_sample(words, 0, SR, 22 * SR) is None
-    assert trim_sample(words, 3, SR, 21 * SR) is None  # cut at the end of the buffer
+# ---- Streamer --------------------------------------------------------------
 
 
-def test_trim_sample_moves_back_into_silence_after_a_stretched_word_end():
-    # Speech 0-1 s, silence 1-2.5 s, next word from 2.5 s. Whisper says the word ends at 2.5 s.
-    audio = np.concatenate([np.full(SR, 0.1), np.zeros(int(1.5 * SR))]).astype(np.float32)
-    words = [w("a", 0.0, 2.5)]
-    cut = trim_sample(words, 1, SR, 4 * SR, audio, 0.005)
-    assert abs(cut - SR) <= int(0.03 * SR)
-    assert trim_sample(words, 1, SR, 4 * SR) == int(2.5 * SR)  # no audio given
-
-
-def test_drop_trailing_silence_keeps_a_short_tail():
-    audio = np.concatenate([np.full(SR, 0.1), np.zeros(2 * SR)]).astype(np.float32)
-    out = drop_trailing_silence(audio, SR, 0.005, keep_s=0.2)
-    assert abs(len(out) / SR - 1.2) < 0.03
-    short = np.concatenate([np.full(SR, 0.1), np.zeros(SR // 10)]).astype(np.float32)
-    assert len(drop_trailing_silence(short, SR, 0.005)) == len(short)
-
-
-def test_drop_leading_silence_keeps_a_short_lead_and_reports_removed_samples():
-    audio = np.concatenate([np.zeros(2 * SR), np.full(SR, 0.1)]).astype(np.float32)
-    out, removed = drop_leading_silence(audio, SR, 0.005, keep_s=0.2)
-    assert abs(removed / SR - 1.8) < 0.03
-    assert len(out) == len(audio) - removed
-    same, none = drop_leading_silence(np.full(SR, 0.1, dtype=np.float32), SR, 0.005)
-    assert none == 0 and len(same) == SR
-
-
-def test_speech_seconds_counts_loud_frames():
-    audio = np.concatenate([np.zeros(SR), np.full(SR // 2, 0.1)]).astype(np.float32)
-    assert abs(speech_seconds(audio, SR, 0.005) - 0.5) < 0.03
-    assert speech_seconds(np.zeros(SR, dtype=np.float32), SR, 0.005) == 0.0
-
-
-def test_trailing_silence_counts_quiet_frames_at_the_end():
-    audio = np.concatenate([np.full(SR, 0.1), np.zeros(SR // 2)]).astype(np.float32)
-    assert abs(trailing_silence_s(audio, SR, 0.005) - 0.5) < 0.03
-    assert trailing_silence_s(np.full(SR, 0.1, dtype=np.float32), SR, 0.005) == 0.0
-    assert trailing_silence_s(np.zeros(SR, dtype=np.float32), SR, 0.005) == 1.0
-
-
-class FakeRecorder:
-    def __init__(self):
-        self.audio = np.zeros(0, dtype=np.float32)
-        self.trims = []
-        self.on_max = None
-
-    def feed(self, seconds, level=0.1):
-        self.audio = np.concatenate([self.audio, np.full(int(seconds * SR), level, np.float32)])
-
-    def snapshot(self):
-        return self.audio.copy()
-
-    def trim(self, n):
-        self.trims.append(n)
-        self.audio = self.audio[n:]
-
-    def start(self):
-        pass
-
-    def stop(self):
-        return self.audio.copy()
-
-
-class ScriptedTranscriber:
-    def __init__(self, results):
-        self.results = list(results)
-        self.prompts = []
-        self.timestamps = []
-
-    def transcribe_words(self, audio, prompt=None, timestamps=True):
-        self.prompts.append(prompt)
-        self.timestamps.append(timestamps)
-        return self.results.pop(0)
-
-
-class FakeInserter:
-    def __init__(self):
-        self.typed = []
-
-    def type_text(self, text):
-        self.typed.append(text)
-
-
-def ws(*texts):
-    return [w(t, i * 0.5, i * 0.5 + 0.4) for i, t in enumerate(texts)]
-
-
-def make(results, **cfg):
-    rec, ins = FakeRecorder(), FakeInserter()
-    tr = ScriptedTranscriber(results)
-    s = Streamer(Config(**cfg), rec, tr, ins)
-    return s, rec, tr, ins
-
-
-def test_streamer_commits_stable_words_then_release_tail():
-    s, rec, _, ins = make(
+def test_commits_stable_words_then_types_the_release_tail(make_streamer):
+    s, rec, _, ins = make_streamer(
         [
             ws("hello", "big", "world"),
             ws("hello", "big", "world", "how", "are"),
@@ -176,21 +65,23 @@ def test_streamer_commits_stable_words_then_release_tail():
     assert ins.typed == ["hello big world"]
     rec.feed(1.0)
     s.finish(rec.audio)
-    assert ins.typed == ["hello big world", " how are you"]
+    assert ins.typed == ["hello big world", " how are you"]  # leading space between chunks
 
 
-def test_streamer_skips_pass_without_new_speech():
-    s, rec, tr, _ = make([ws("a", "b", "c")])
+def test_pass_is_skipped_without_enough_new_speech(make_streamer):
+    s, rec, tr, _ = make_streamer([ws("a", "b", "c")])
     rec.feed(1.0)
     s.tick()
-    assert len(tr.prompts) == 1
-    rec.feed(0.3, level=0.0)
+    rec.feed(0.2, level=0.0)
     s.tick()
-    assert len(tr.prompts) == 1  # short silence added, no pass
+    assert len(tr.prompts) == 1
+    rec.feed(0.2)  # 0.2 s of speech is below stream_min_speech_s
+    s.tick()
+    assert len(tr.prompts) == 1
 
 
-def test_streamer_mismatch_keeps_inserted_text(caplog):
-    s, rec, _, ins = make(
+def test_mismatch_keeps_inserted_text_and_logs_a_warning(make_streamer, caplog):
+    s, rec, _, ins = make_streamer(
         [
             ws("a", "b", "c", "d"),
             ws("a", "b", "c", "d"),
@@ -203,25 +94,27 @@ def test_streamer_mismatch_keeps_inserted_text(caplog):
     rec.feed(1.0)
     s.tick()
     assert ins.typed == ["a b c"]
-    with caplog.at_level("WARNING", logger="murmur"):
+    with caplog.at_level(logging.WARNING, logger="murmur"):
         s.finish(rec.audio)
     assert ins.typed == ["a b c", " d e"]
-    assert "disagrees" in caplog.text
+    assert "final text disagrees with committed prefix" in caplog.text
 
 
-def test_streamer_trims_long_buffer_and_passes_prompt():
+def test_long_buffer_is_trimmed_at_the_last_committed_word_and_prompts_later_passes(
+    make_streamer,
+):
     first = [w("one", 0, 4), w("two", 4, 10), w("three", 10, 18), w("four", 18, 22)]
-    s, rec, tr, ins = make(
+    s, rec, tr, ins = make_streamer(
         [first, first, ws("four", "five"), ws("four", "five", "six")], stream_holdback_words=1
     )
     rec.feed(22.0)
     s.tick()
     rec.feed(0.6)
     s.tick()
-    # stable and not held back: one, two, three; cut at end of "three" (18 s)
-    assert ins.typed == ["one two three"]
+    assert ins.typed == ["one two three"]  # stable and not held back
     assert rec.trims == [18 * SR]
-    assert len(rec.audio) == len(rec.snapshot()) < 5 * SR
+    assert len(rec.audio) < 5 * SR
+    assert s.seg_committed == [] and s.prev_words == []
     rec.feed(1.0)
     s.tick()
     assert tr.prompts[-1] == "one two three"
@@ -229,23 +122,37 @@ def test_streamer_trims_long_buffer_and_passes_prompt():
     assert "".join(ins.typed).split() == ["one", "two", "three", "four", "five", "six"]
 
 
-def test_timestamps_requested_only_for_long_buffers_and_never_for_final():
+def test_trim_corrects_pass_bookkeeping_by_the_cut(make_streamer):
+    s, rec, _, _ = make_streamer([[w("one", 0, 18.0), w("two", 18.0, 22.0)]])
+    rec.feed(22.0)
+    s.flushed_samples = 20 * SR
+    s.last_pass_samples = 22 * SR
+    s._maybe_trim([w("one", 0, 18.0)], 22 * SR, rec.audio)  # nothing committed yet: no trim
+    assert rec.trims == [] and s.flushed_samples == 20 * SR
+    s.seg_committed = ["one"]
+    s._maybe_trim([w("one", 0, 18.0)], 22 * SR, rec.audio)
+    assert rec.trims == [18 * SR]
+    assert s.last_pass_samples == 4 * SR
+    assert s.flushed_samples == 2 * SR
+
+
+def test_word_timestamps_are_requested_only_for_long_buffers_and_never_for_the_final(
+    make_streamer,
+):
     first = [w("one", 0, 4), w("two", 4, 10), w("three", 10, 18), w("four", 18, 22)]
-    s, rec, tr, _ = make([ws("a", "b"), first, first, ws("c")], stream_holdback_words=1)
+    s, rec, tr, _ = make_streamer([ws("a", "b"), first, first, ws("c")], stream_holdback_words=1)
     rec.feed(5.0)
-    s.tick()  # short buffer: no timestamps
+    s.tick()
     rec.feed(17.0)
-    s.tick()  # 22 s buffer: timestamps for the trim
+    s.tick()
     rec.feed(0.6)
     s.tick()
-    s.finish(rec.audio)  # final pass never needs timestamps
-    assert tr.timestamps[0] is False
-    assert tr.timestamps[1] is True
-    assert tr.timestamps[-1] is False
+    s.finish(rec.audio)
+    assert tr.timestamps == [False, True, True, False]
 
 
-def test_pause_flushes_held_back_words_while_option_is_held():
-    s, rec, tr, ins = make(
+def test_pause_flushes_held_back_words_while_option_is_held(make_streamer):
+    s, rec, tr, ins = make_streamer(
         [
             ws("hello", "big", "world"),  # first pass, nothing stable
             ws("hello", "big", "world", "how", "are", "you"),  # pass after the pause
@@ -265,8 +172,10 @@ def test_pause_flushes_held_back_words_while_option_is_held():
     assert len(tr.prompts) == 2
 
 
-def test_short_pause_does_not_flush():
-    s, rec, _, ins = make([ws("a", "b", "c"), ws("a", "b", "c", "d")], stream_holdback_words=2)
+def test_short_pause_does_not_flush(make_streamer):
+    s, rec, _, ins = make_streamer(
+        [ws("a", "b", "c"), ws("a", "b", "c", "d")], stream_holdback_words=2
+    )
     rec.feed(1.0)
     s.tick()
     rec.feed(0.4)
@@ -275,59 +184,129 @@ def test_short_pause_does_not_flush():
     assert ins.typed == ["a b"]  # normal stable-prefix commit only
 
 
-def test_flush_never_edits_typed_text_and_release_types_only_new_words():
-    s, rec, _, ins = make(
-        [
-            ws("one", "two", "three"),
-            ws("one", "two", "three"),
-            ws("one", "two", "three", "four"),  # final after a later word
-        ],
-        stream_holdback_words=1,
-    )
-    rec.feed(1.0)
-    s.tick()
+def test_pause_without_new_speech_since_the_last_flush_does_not_rerun(make_streamer):
+    s, rec, tr, _ = make_streamer([ws("a", "b"), ws("a", "b")])
+    rec.feed(0.5)
+    rec.feed(0.8, level=0.0)
+    s.tick()  # flush
     rec.feed(0.8, level=0.0)
     s.tick()
-    assert ins.typed == ["one two three"]
-    rec.feed(0.6)
+    assert len(tr.prompts) == 1
+
+
+def test_flush_and_final_passes_drop_trailing_silence_and_every_pass_drops_leading(
+    make_streamer,
+):
+    s, rec, tr, _ = make_streamer([ws("a"), ws("a"), ws("a")])
+    rec.feed(1.0, level=0.0)  # 1 s of leading silence
+    rec.feed(0.5)
+    rec.feed(1.0, level=0.0)  # 1 s of trailing silence: triggers a flush
+    s.tick()
+    # leading 1.0 s -> 0.2 s, trailing 1.0 s -> 0.2 s: 0.2 + 0.5 + 0.2 s remain
+    assert abs(tr.audio_lengths[0] / SR - 0.9) < 0.05
     s.finish(rec.audio)
-    assert ins.typed == ["one two three", " four"]
+    assert abs(tr.audio_lengths[1] / SR - 0.9) < 0.05
 
 
-def test_cancel_stops_inserting_but_keeps_text():
-    s, rec, _, ins = make([ws("a", "b", "c"), ws("a", "b", "c")], stream_holdback_words=0)
+def test_normal_pass_keeps_trailing_audio(make_streamer):
+    s, rec, tr, _ = make_streamer([ws("a")])
+    rec.feed(1.0)
+    rec.feed(0.4, level=0.0)  # a short quiet tail below the flush threshold
+    s.tick()
+    assert abs(tr.audio_lengths[0] / SR - 1.4) < 0.05
+
+
+def test_leading_silence_shifts_word_times_before_the_trim_cut(make_streamer):
+    # 3 s silence + 18 s speech = 21 s: a timestamp pass. Leading silence is cut to 0.2 s,
+    # so heard times are 2.8 s earlier than buffer times.
+    words = [w("one", 0.0, 5.0), w("two", 5.0, 10.0), w("three", 10.0, 15.0)]
+    s, rec, _, _ = make_streamer([words, words], stream_holdback_words=1)
+    rec.feed(3.0, level=0.0)
+    rec.feed(18.0)
+    s.tick()
+    rec.feed(0.5)
+    s.tick()  # "one" and "two" are stable; the cut is the end of "two"
+    assert len(rec.trims) == 1
+    assert abs(rec.trims[0] - int((10.0 + 2.8) * SR)) <= int(0.03 * SR)
+
+
+def test_final_pass_skips_the_model_for_silent_audio(make_streamer):
+    s, _, tr, ins = make_streamer([])
+    assert s.finish(tone(1.0, 0)) == []
+    assert tr.prompts == [] and ins.typed == []
+
+
+def test_cancel_stops_inserting_keeps_text_and_skips_later_work(make_streamer):
+    s, rec, tr, ins = make_streamer([ws("a", "b", "c"), ws("a", "b", "c")], stream_holdback_words=0)
     rec.feed(1.0)
     s.tick()
     s.cancel()
+    assert s.cancelled
     rec.feed(1.0)
     s.tick()
+    assert len(tr.prompts) == 1  # the cancelled tick never reached the model
     assert ins.typed == []
     assert s.finish(rec.audio) == []
+    assert len(tr.prompts) == 1
 
 
-def test_dictation_streams_and_types_tail_on_release():
-    rec, ins = FakeRecorder(), FakeInserter()
-    ins.insert = lambda text: ins.typed.append("PASTE " + text)
-    tr = ScriptedTranscriber([ws("hello", "there")])
-    clock = SimpleNamespace(t=0.0)
-    d = Dictation(
-        Config(), rec, tr, ins, clock=lambda: clock.t, run_async=False, sound=lambda *a: None
+def test_cancel_during_a_pass_discards_its_words(make_streamer):
+    holder = {}
+    s, rec, _, ins = make_streamer(
+        [ws("a", "b", "c"), ws("a", "b", "c")],
+        on_call=lambda: holder["s"].cancel() if len(holder["tr"].prompts) == 2 else None,
+        stream_holdback_words=0,
     )
-    d.on_press()
+    holder["s"], holder["tr"] = s, s.transcriber
     rec.feed(1.0)
-    clock.t = 1.0
-    d.on_release()
-    assert ins.typed == ["hello there"]
-    assert d.state is State.IDLE
+    s.tick()  # first pass: nothing stable yet
+    rec.feed(1.0)
+    s.tick()  # cancelled while the model runs
+    assert ins.typed == []
+    assert s.seg_committed == []  # a dropped emit must not advance the committed prefix
 
 
-def test_dictation_combo_cancel_stops_streamer():
-    rec, ins = FakeRecorder(), FakeInserter()
-    d = Dictation(
-        Config(), rec, ScriptedTranscriber([]), ins, run_async=False, sound=lambda *a: None
-    )
-    d.on_press()
-    streamer = d.streamer
-    d.on_other_key()
-    assert streamer._cancelled and d.streamer is None
-    assert d.state is State.IDLE
+def test_failed_emit_is_not_counted_as_committed(make_streamer):
+    s, _, _, ins = make_streamer([ws("a")])
+    s.cancel()
+    assert s._emit(["a"]) is False
+    assert ins.typed == [] and s.total_committed == 0 and not s.inserted_any
+
+
+def test_loop_runs_the_first_pass_after_the_hold_threshold_not_the_interval(make_streamer):
+    s, _, _, _ = make_streamer([], min_hold_ms=50, stream_interval=30.0)
+    ticked = threading.Event()
+    s.tick = ticked.set
+    s.start()
+    try:
+        assert ticked.wait(2.0)  # would take 30 s if the first deadline used the interval
+    finally:
+        s.cancel()
+
+
+def test_loop_repeats_every_interval_and_survives_a_failing_pass(make_streamer):
+    s, _, _, _ = make_streamer([], min_hold_ms=10, stream_interval=0.02)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("pass failed")
+        if len(calls) >= 3:
+            done.set()
+
+    done = threading.Event()
+    s.tick = flaky
+    s.start()
+    try:
+        assert done.wait(2.0)
+    finally:
+        s.cancel()
+
+
+@pytest.mark.parametrize("silent", [True, False])
+def test_finish_without_any_committed_words_types_the_whole_final_text(make_streamer, silent):
+    s, _, _, ins = make_streamer([ws("hello", "there")])
+    audio = tone(1.0, 0 if silent else 0.1)
+    s.finish(audio)
+    assert ins.typed == ([] if silent else ["hello there"])

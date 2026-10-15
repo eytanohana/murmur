@@ -190,6 +190,10 @@ class Streamer:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
 
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
     # control
 
     def start(self) -> None:
