@@ -1,5 +1,5 @@
 [project]
-name = "murmur"
+name = "murmur-dictation"
 version = "0.1.0"
 description = "Local push-to-talk dictation for macOS using Whisper large-v3-turbo on MLX"
 readme = "README.md"
@@ -43,3 +43,6 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.17.1",
 ]
+
+[tool.uv.build-backend]
+module-name = "murmur"
