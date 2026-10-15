@@ -96,9 +96,11 @@ class ScriptedTranscriber:
     def __init__(self, results):
         self.results = list(results)
         self.prompts = []
+        self.timestamps = []
 
-    def transcribe_words(self, audio, prompt=None):
+    def transcribe_words(self, audio, prompt=None, timestamps=True):
         self.prompts.append(prompt)
+        self.timestamps.append(timestamps)
         return self.results.pop(0)
 
 
@@ -182,6 +184,21 @@ def test_streamer_trims_long_buffer_and_passes_prompt():
     assert tr.prompts[-1] == "one two three"
     s.finish(rec.audio)
     assert "".join(ins.typed).split() == ["one", "two", "three", "four", "five", "six"]
+
+
+def test_timestamps_requested_only_for_long_buffers_and_never_for_final():
+    first = [w("one", 0, 4), w("two", 4, 10), w("three", 10, 18), w("four", 18, 22)]
+    s, rec, tr, _ = make([ws("a", "b"), first, first, ws("c")], stream_holdback_words=1)
+    rec.feed(5.0)
+    s.tick()                 # short buffer: no timestamps
+    rec.feed(17.0)
+    s.tick()                 # 22 s buffer: timestamps for the trim
+    rec.feed(0.6)
+    s.tick()
+    s.finish(rec.audio)      # final pass never needs timestamps
+    assert tr.timestamps[0] is False
+    assert tr.timestamps[1] is True
+    assert tr.timestamps[-1] is False
 
 
 def test_cancel_stops_inserting_but_keeps_text():

@@ -156,8 +156,11 @@ class Streamer:
             return
         t0 = self.clock()
         log.info("stream pass start: %.1fs audio", n / self.sr)
+        # Timestamps are only needed on the pass that trims a long buffer.
+        need_cut = n / self.sr > self.cfg.stream_trim_s
         with watchdog("streaming pass"):
-            words = self.transcriber.transcribe_words(audio, self._prompt())
+            words = self.transcriber.transcribe_words(audio, self._prompt(),
+                                                      timestamps=need_cut)
         took = self.clock() - t0
         self.pass_times.append(took)
         self.last_pass_samples = n
@@ -213,7 +216,8 @@ class Streamer:
             t0 = self.clock()
             log.info("final pass start: %.1fs audio", len(final_audio) / self.sr)
             with watchdog("final pass"):
-                words = self.transcriber.transcribe_words(final_audio, self._prompt())
+                words = self.transcriber.transcribe_words(final_audio, self._prompt(),
+                                                          timestamps=False)
             log.info("final pass end: text=%r", " ".join(w.text for w in words))
             self.pass_times.append(self.clock() - t0)
         final = [w.text for w in words]

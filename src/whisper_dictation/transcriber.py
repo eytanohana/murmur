@@ -76,19 +76,34 @@ class Transcriber:
             return ""
         return clean_text(self._run(audio), clip_rms, self.silence_rms)
 
-    def transcribe_words(self, audio: np.ndarray, initial_prompt: str | None = None) -> list[Word]:
-        """Transcribe with word timestamps. Silent clips and artifacts give no words."""
+    def transcribe_words(self, audio: np.ndarray, initial_prompt: str | None = None,
+                         timestamps: bool = True) -> list[Word]:
+        """Transcribe into words. Silent clips and artifacts give no words.
+
+        Word timestamps cost about 0.4 s per call on top of a 0.4 s base, so callers
+        that do not need them pass timestamps=False; start and end are then 0.
+        """
         audio = np.asarray(audio, dtype=np.float32)
         clip_rms = rms(audio)
         if clip_rms < self.silence_rms:
             return []
-        result = self._decode(audio, word_timestamps=True, initial_prompt=initial_prompt)
-        if not clean_text(result.get("text", ""), clip_rms, self.silence_rms):
+        result = self._decode(audio, word_timestamps=timestamps, initial_prompt=initial_prompt)
+        text = clean_text(result.get("text", ""), clip_rms, self.silence_rms)
+        if not text:
             return []
+        if not timestamps:
+            return [Word(t, 0.0, 0.0) for t in text.split()]
         words = []
         for seg in result.get("segments", []):
             for w in seg.get("words", []):
-                text = w["word"].strip()
-                if text:
-                    words.append(Word(text, float(w["start"]), float(w["end"])))
+                raw = w["word"]
+                piece = raw.strip()
+                if not piece:
+                    continue
+                if words and not raw.startswith(" "):
+                    # Pieces such as "-call" join the previous word, matching the
+                    # whitespace split used when timestamps are off.
+                    words[-1] = Word(words[-1].text + piece, words[-1].start, float(w["end"]))
+                else:
+                    words.append(Word(piece, float(w["start"]), float(w["end"])))
         return words
