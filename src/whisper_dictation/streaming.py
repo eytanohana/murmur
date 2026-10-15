@@ -130,8 +130,8 @@ class Streamer:
         log.info("Streaming cancelled; %d words already inserted stay", self.total_committed)
 
     def _loop(self) -> None:
-        first = max(self.cfg.stream_interval, self.cfg.min_hold_ms / 1000)
-        deadline = self.clock() + first
+        # Passes start as soon as the hold threshold is reached.
+        deadline = self.clock() + self.cfg.min_hold_ms / 1000
         while not self._stop.wait(max(0.0, deadline - self.clock())):
             started = self.clock()
             try:
