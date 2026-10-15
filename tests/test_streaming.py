@@ -8,6 +8,7 @@ from whisper_dictation.streaming import (
     Streamer,
     commit_target,
     common_prefix_len,
+    join_words,
     release_tail,
     speech_seconds,
     trim_sample,
@@ -33,6 +34,10 @@ def test_commit_target_requires_two_passes_and_holds_back():
     assert commit_target(0, prev, cur, holdback=2) == 3
     assert commit_target(0, [], cur, holdback=2) == 0  # first pass commits nothing
     assert commit_target(0, prev, cur, holdback=0) == 4
+
+
+def test_join_words_attaches_split_tokens():
+    assert join_words(["the", "on", "-call", "handbook,", "ok"]) == "the on-call handbook, ok"
 
 
 def test_commit_target_never_goes_backwards():

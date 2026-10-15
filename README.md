@@ -1,6 +1,6 @@
 # whisper-dictation
 
-Push-to-talk dictation for macOS. Hold Option, speak, release; the transcript is inserted at the cursor of the focused app. Transcription runs locally with Whisper large-v3-turbo on MLX. See DESIGN.md for the reasoning.
+Push-to-talk dictation for macOS. Hold Option and speak; words are typed at the cursor of the focused app as they become stable, and the rest is typed when you release. Transcription runs locally with Whisper large-v3-turbo on MLX. See DESIGN.md for the reasoning.
 
 ## Setup
 
@@ -25,6 +25,8 @@ The app prints a warning at startup for Accessibility and Input Monitoring if th
 
 ## Behavior
 
+Streaming is on by default. While Option is held, the buffer is re-transcribed about every second. Words that match in the same position on two consecutive passes are typed; the last two words wait until they stabilize or you release. Typed text is never edited, so a word that Whisper revises after it was typed stays as typed, and only the remaining tail is appended on release (mismatches are logged). Streamed text is typed with key events, not pasted. Set `stream = false` to transcribe only on release and use `insert_mode`.
+
 - Holds shorter than `min_hold_ms` (300) do nothing, so Option symbol typing still works.
 - Pressing any other key while Option is held cancels the recording.
 - Recordings stop at `max_record_s` (120) and are transcribed.
@@ -45,10 +47,15 @@ Optional file at `~/.config/whisper-dictation/config.toml`. Any key can be omitt
 | `max_record_s` | `120` | Maximum recording length |
 | `silence_rms` | `0.005` | RMS below this counts as silence |
 | `option_keys` | `"both"` | `"left"`, `"right"` or `"both"` |
-| `insert_mode` | `"paste"` | `"paste"` or `"type"` |
+| `insert_mode` | `"paste"` | `"paste"` or `"type"`; used only when `stream = false` |
 | `paste_restore_delay_ms` | `150` | Wait before restoring the clipboard |
 | `sounds` | `true` | Start and stop sounds |
 | `start_sound`, `stop_sound` | Tink, Pop | Paths under `/System/Library/Sounds` |
+| `stream` | `true` | Type stable words while Option is held |
+| `stream_interval` | `1.0` | Seconds between streaming passes |
+| `stream_holdback_words` | `2` | Words held back until stable or release |
+| `stream_trim_s` | `20` | Buffer length that triggers a trim at the last committed word |
+| `stream_min_speech_s` | `0.5` | New speech needed to run a pass |
 | `menubar` | `false` | Same as `--menubar` |
 
 ## Swapping the model

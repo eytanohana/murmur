@@ -30,6 +30,19 @@ def norm(word: str) -> str:
     return re.sub(r"[^\w']", "", word.lower())
 
 
+def join_words(words: list[str]) -> str:
+    """Join words with spaces, except before tokens that attach to the previous word.
+
+    Whisper splits some words into pieces such as "on" and "-call".
+    """
+    out = ""
+    for word in words:
+        if out and word[0] not in ".,;:!?-)%'\"":
+            out += " "
+        out += word
+    return out
+
+
 def common_prefix_len(prev: list[str], cur: list[str]) -> int:
     """Number of leading words that match in the same position."""
     n = 0
@@ -174,7 +187,7 @@ class Streamer:
         with self._lock:
             if self._cancelled:
                 return False
-            text = " ".join(words)
+            text = join_words(words)
             if self.inserted_any:
                 text = " " + text
             self.inserter.type_text(text)
