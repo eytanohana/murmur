@@ -26,14 +26,16 @@ Default model repo: `mlx-community/whisper-large-v3-turbo`. Make the repo a conf
 
 Whisper is not a streaming model, so while Option is held the app re-transcribes the growing buffer and types words once they are stable. `stream = false` restores the release-only behavior above.
 
-1. Every `stream_interval` seconds (1.0) a pass runs on the current utterance buffer, on one worker thread. Passes never overlap; a slow pass delays the next.
+1. Every `stream_interval` seconds (0.5) a pass runs on the current utterance buffer, on one worker thread. Passes never overlap; a slow pass delays the next.
 2. Words that match in the same position on two consecutive passes (case and punctuation ignored) are stable. Only new stable words are typed, immediately. Typed text is never deleted or edited.
-3. The last `stream_holdback_words` words (2) of the newest pass are held back until they stabilize with more audio or Option is released.
+3. The last `stream_holdback_words` words (1) of the newest pass are held back until they stabilize with more audio or Option is released.
 4. On release, one final pass runs on the full buffer. Only the words after the committed prefix are typed. If the final text disagrees with the committed prefix, the typed text stays, only the tail is appended, and the mismatch is logged.
 5. When the buffer exceeds `stream_trim_s` (20 s), it is cut at the end of the last committed word (word timestamps), the audio before the cut is dropped, and the committed text is passed as `initial_prompt` for later passes.
 6. Streamed chunks use type mode (no clipboard use), with a leading space between chunks. The non-stream path keeps `insert_mode`.
-7. Silence gate, minimum hold, combo cancel and max length still apply. Combo cancel stops streaming; text already typed stays. The first pass runs no earlier than the minimum hold.
-8. A pass is skipped unless the audio added since the last pass has at least `stream_min_speech_s` (0.5 s) of frames above the silence threshold.
+7. Silence gate, minimum hold, combo cancel and max length still apply. Combo cancel stops streaming; text already typed stays. The first pass runs right after the minimum hold.
+8. A pass is skipped unless the audio added since the last pass has at least `stream_min_speech_s` (0.3 s) of frames above the silence threshold.
+
+Passes decode plain text; word timestamps (0.4 s extra) are requested only for the pass that trims a long buffer. See the README for the latency measurements and the rejected tail-only and fast-commit variants.
 
 Known limits: punctuation on the last committed word can still change in the final pass and is not corrected, because typed text is never edited. Each pass costs a full decode of the buffer, so the GPU stays busy while Option is held.
 

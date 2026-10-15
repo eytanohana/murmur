@@ -33,7 +33,7 @@ Click into a text field (TextEdit) within 3 seconds. It types "hello from whispe
 
 ## Behavior
 
-Streaming is on by default. While Option is held, the buffer is re-transcribed about every second. Words that match in the same position on two consecutive passes are typed; the last two words wait until they stabilize or you release. Typed text is never edited, so a word that Whisper revises after it was typed stays as typed, and only the remaining tail is appended on release (mismatches are logged). Streamed text is typed with key events, not pasted. Set `stream = false` to transcribe only on release and use `insert_mode`.
+Streaming is on by default. While Option is held, the buffer is re-transcribed about every half second. Words that match in the same position on two consecutive passes are typed; the last word waits until it stabilizes or you release. Typed text is never edited, so a word that Whisper revises after it was typed stays as typed, and only the remaining tail is appended on release (mismatches are logged). Streamed text is typed with key events, not pasted. Set `stream = false` to transcribe only on release and use `insert_mode`.
 
 - Holds shorter than `min_hold_ms` (300) do nothing, so Option symbol typing still works.
 - Pressing any other key while Option is held cancels the recording.
@@ -60,11 +60,25 @@ Optional file at `~/.config/whisper-dictation/config.toml`. Any key can be omitt
 | `sounds` | `true` | Start and stop sounds |
 | `start_sound`, `stop_sound` | Tink, Pop | Paths under `/System/Library/Sounds` |
 | `stream` | `true` | Type stable words while Option is held |
-| `stream_interval` | `1.0` | Seconds between streaming passes |
-| `stream_holdback_words` | `2` | Words held back until stable or release |
+| `stream_interval` | `0.5` | Seconds between pass starts; a pass takes about 0.45 s, so passes run nearly back to back |
+| `stream_holdback_words` | `1` | Words held back until stable or release |
 | `stream_trim_s` | `20` | Buffer length that triggers a trim at the last committed word |
-| `stream_min_speech_s` | `0.5` | New speech needed to run a pass |
+| `stream_min_speech_s` | `0.3` | New speech needed to run a pass |
 | `menubar` | `false` | Same as `--menubar` |
+
+## Streaming latency
+
+Measured with a 43 s `say` clip fed in real time through the real `Dictation` loop and model on an M4 Pro (lag is the time from a word's spoken end, per Whisper word timestamps, to it being typed):
+
+| Setting | First text | Mean lag | 90th percentile | Release to done |
+| --- | --- | --- | --- | --- |
+| interval 1.0, holdback 2, speech 0.5 | 2.8 s | 2.33 s | 2.73 s | 1.67 s |
+| interval 0.5, holdback 1, speech 0.5 | 1.7 s | 1.5 s | 2.1 s | 0.45 s |
+| interval 0.5, holdback 1, speech 0.3 (default) | 1.2 s | 1.22 s | 1.56 s | 0.57 s |
+
+Word similarity to the spoken text was 1.000 in all three rows (0.989 against Whisper's own full-clip transcript, which splits "on-call" differently). Lag is bounded by the pass time (about 0.45 s, fixed because Whisper always encodes a 30 s window) times the two passes a word needs to be seen, plus the held-back word. Intervals below 0.5 s gave no meaningful gain (mean lag 1.45 s at 0.3 s). Holdback 0 gave no gain either. Lowering the interval raises GPU load while Option is held.
+
+Tried and rejected: decoding only the uncommitted tail plus 3 s of overlap did not make passes faster (cost is flat in audio length) and lost words at the window edge (115 of 134 words typed, similarity 0.92). Committing after one pass for words followed by three more words with probability of at least 0.9 needs word timestamps (0.4 s more per pass), and typed 107 of 134 words (similarity 0.88). Lowering the temperature or the decode length changed nothing measurable.
 
 ## Troubleshooting
 
