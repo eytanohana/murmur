@@ -51,7 +51,7 @@ def make(text="hello world", audio=None):
     clock = Clock()
     rec, tr, ins = FakeRecorder(audio), FakeTranscriber(text), FakeInserter()
     sounds = []
-    d = Dictation(Config(), rec, tr, ins, clock=clock, run_async=False,
+    d = Dictation(Config(stream=False), rec, tr, ins, clock=clock, run_async=False,
                   sound=lambda path, enabled: sounds.append(path))
     return SimpleNamespace(d=d, clock=clock, rec=rec, tr=tr, ins=ins, sounds=sounds)
 

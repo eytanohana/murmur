@@ -2,6 +2,10 @@
 
 Policy for a press during transcription: it is ignored and a log line is
 printed. Jobs are never queued, so a slow clip cannot build a backlog.
+
+With cfg.stream (default) a Streamer types stable words while Option is held
+and the release only types the tail. With stream = false the whole clip is
+transcribed on release and inserted with insert_mode.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import time
 
 from .config import Config
 from .feedback import NullStatus, play_sound
+from .streaming import Streamer
 
 log = logging.getLogger("whisper_dictation")
 
@@ -37,6 +42,7 @@ class Dictation:
         self.state = State.IDLE
         self._lock = threading.Lock()
         self._started_at = 0.0
+        self.streamer: Streamer | None = None
         # Max-length stop is wired here so the recorder can call back into us.
         recorder.on_max = self.on_release
 
@@ -59,6 +65,10 @@ class Dictation:
                 return
             self._started_at = self.clock()
             self._set_state(State.RECORDING)
+            if self.cfg.stream:
+                self.streamer = Streamer(self.cfg, self.recorder, self.transcriber,
+                                         self.inserter, self.clock)
+                self.streamer.start()
         self.sound(self.cfg.start_sound, self.cfg.sounds)
 
     def on_other_key(self) -> None:
@@ -66,6 +76,9 @@ class Dictation:
             if self.state is not State.RECORDING:
                 return
             self.recorder.stop()
+            if self.streamer:
+                self.streamer.cancel()
+                self.streamer = None
             self._set_state(State.IDLE)
         log.info("Other key pressed with Option held; recording cancelled")
 
@@ -76,15 +89,35 @@ class Dictation:
             held = self.clock() - self._started_at
             audio = self.recorder.stop()
             if held * 1000 < self.cfg.min_hold_ms:
+                if self.streamer:
+                    self.streamer.cancel()
+                    self.streamer = None
                 self._set_state(State.IDLE)
                 log.debug("Hold of %.0f ms below minimum; ignored", held * 1000)
                 return
             self._set_state(State.TRANSCRIBING)
         self.sound(self.cfg.stop_sound, self.cfg.sounds)
+        streamer, self.streamer = self.streamer, None
+        job = self._process_stream if streamer else self._process
+        args = (streamer, audio) if streamer else (audio, held)
         if self.run_async:
-            threading.Thread(target=self._process, args=(audio, held), daemon=True).start()
+            threading.Thread(target=job, args=args, daemon=True).start()
         else:
-            self._process(audio, held)
+            job(*args)
+
+    def _process_stream(self, streamer: Streamer, audio) -> None:
+        try:
+            t0 = self.clock()
+            streamer.finish(audio)
+            passes = streamer.pass_times
+            log.info("streamed %d words, %d passes, final pass %.2fs, release wait %.2fs",
+                     streamer.total_committed, len(passes),
+                     passes[-1] if passes else 0.0, self.clock() - t0)
+        except Exception:
+            log.exception("Streaming finish failed")
+        finally:
+            with self._lock:
+                self._set_state(State.IDLE)
 
     def _process(self, audio, held: float) -> None:
         try:

@@ -122,7 +122,7 @@ class Streamer:
             started = self.clock()
             try:
                 self.tick()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("Streaming pass failed")
             deadline = started + self.cfg.stream_interval
 
