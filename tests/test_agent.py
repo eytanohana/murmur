@@ -88,3 +88,64 @@ def test_permission_text_names_resolved_python(tmp_path):
     text = agent.permission_instructions(link)
     assert str(target.resolve()) in text
     assert "Accessibility" in text and "Microphone" in text
+
+
+def test_install_fails_when_plutil_rejects_the_plist(tmp_path):
+    runner, lines = FakeRunner(returncode=1, stdout="bad plist"), []
+    assert agent.install(tmp_path, runner, out=lines.append) == 1
+    assert [c[0] for c in runner.calls] == ["plutil"]  # launchctl is never reached
+    assert any("plutil -lint failed" in line for line in lines)
+
+
+def test_install_reports_a_failed_bootstrap(tmp_path):
+    class BootstrapFails(FakeRunner):
+        def __call__(self, cmd):
+            result = super().__call__(cmd)
+            if cmd[:2] == ["launchctl", "bootstrap"]:
+                result.returncode = 5
+            return result
+
+    lines = []
+    assert agent.install(tmp_path, BootstrapFails(), out=lines.append) == 1
+    assert any("launchctl bootstrap failed" in line for line in lines)
+
+
+def test_install_needs_the_project_venv(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent, "project_dir", lambda: tmp_path)
+    lines = []
+    assert agent.install(tmp_path / "home", FakeRunner(), out=lines.append) == 1
+    assert any("uv sync" in line for line in lines)
+
+
+def test_uninstall_when_not_loaded_still_removes_the_plist(tmp_path):
+    agent.install(tmp_path, FakeRunner(), no_start=True, out=lambda s: None)
+    lines = []
+    agent.uninstall(tmp_path, FakeRunner(returncode=113), out=lines.append)
+    assert any("was not loaded" in line for line in lines)
+    assert not agent.plist_path(tmp_path).exists()
+
+
+def test_uninstall_dry_run_touches_nothing(tmp_path):
+    agent.install(tmp_path, FakeRunner(), no_start=True, out=lambda s: None)
+    runner = FakeRunner()
+    agent.uninstall(tmp_path, runner, dry_run=True, out=lambda s: None)
+    assert runner.calls == [] and agent.plist_path(tmp_path).exists()
+
+
+def test_main_agent_routes_commands(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(agent, "install", lambda home, **kw: seen.append(("install", kw)) or 0)
+    monkeypatch.setattr(agent, "uninstall", lambda home, **kw: seen.append(("uninstall", kw)) or 0)
+    monkeypatch.setattr(agent, "status", lambda home: seen.append(("status", {})) or 0)
+
+    class Args:
+        dry_run, no_start = True, False
+
+    agent.main_agent("install-agent", Args, tmp_path)
+    agent.main_agent("uninstall-agent", Args, tmp_path)
+    agent.main_agent("agent-status", Args, tmp_path)
+    assert seen == [
+        ("install", {"dry_run": True, "no_start": False}),
+        ("uninstall", {"dry_run": True}),
+        ("status", {}),
+    ]

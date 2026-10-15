@@ -72,11 +72,12 @@ src/murmur/
   transcriber.py  mlx_whisper.transcribe wrapper, model preloaded and warmed at startup
   inserter.py     clipboard paste and type modes
   app.py          state machine: IDLE -> RECORDING -> TRANSCRIBING -> IDLE
+  audio.py        pure audio helpers: RMS, silence detection, edge trimming, buffer cut point
   streaming.py    stable-prefix commit logic and the per-utterance Streamer
   feedback.py     sounds
   indicator.py    overlay pill and menu bar item
   agent.py        LaunchAgent plist and launchctl commands
-tests/            pytest; unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
+tests/            pytest (fakes in helpers.py, fixtures in conftest.py); unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
 ```
 
 Notes:
