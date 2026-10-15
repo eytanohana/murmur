@@ -1,0 +1,8 @@
+# Mirrors the CI quality gates (.github/workflows/ci.yml) so failures
+# surface before a push. Install once with: uv run pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.0
+    hooks:
+      - id: ruff-check
+      - id: ruff-format

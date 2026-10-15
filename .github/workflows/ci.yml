@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_call:
+
+env:
+  UV_VERSION: "0.12.10"
+
+jobs:
+  tests:
+    name: Test on Python ${{ matrix.python-version }}
+    # mlx and PyObjC only install on macOS, so Linux runners cannot sync the project.
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: [ "3.12", "3.13" ]
+
+    steps:
+      - name: Checkout repository ${{ github.repository }}
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+
+      - name: Setup uv and python
+        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867  # v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Check formatting
+        run: uv run ruff format --diff
+
+      - name: Run tests
+        run: uv run pytest tests
