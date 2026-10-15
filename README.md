@@ -162,3 +162,11 @@ Any `mlx-community` Whisper repo works. `language` is passed through, so set it 
 uv run pytest
 uv run ruff check
 ```
+
+## License and credits
+
+murmur is released under the MIT License (see `LICENSE`).
+
+It runs [OpenAI Whisper](https://github.com/openai/whisper) models (code and weights are MIT licensed) through [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (MIT), using the `mlx-community/whisper-large-v3-turbo` conversion from Hugging Face. The model is downloaded at first run and is not bundled with this package.
+
+Other dependencies keep their own licenses: pynput (LGPL-3.0), sounddevice (MIT), numpy (BSD), PyObjC (MIT) and rumps (BSD, optional).
