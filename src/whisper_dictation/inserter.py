@@ -26,9 +26,14 @@ class Inserter:
         if not text:
             return
         if self.mode == "type":
-            self._kb.type(text)
+            self.type_text(text)
         else:
             self._paste(text)
+
+    def type_text(self, text: str) -> None:
+        """Type with synthetic key events. Used for streamed chunks (no clipboard)."""
+        if text:
+            self._kb.type(text)
 
     def _paste(self, text: str) -> None:
         # pbpaste/pbcopy only round-trip plain text; rich clipboard content is lost.

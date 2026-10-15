@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 # Whisper tends to emit these on silent or near-silent audio.
@@ -14,6 +16,13 @@ SILENCE_ARTIFACTS = {
     "bye.",
     "bye",
 }
+
+
+@dataclass
+class Word:
+    text: str
+    start: float
+    end: float
 
 
 def rms(audio: np.ndarray) -> float:
@@ -37,21 +46,28 @@ class Transcriber:
         self.silence_rms = silence_rms
 
     def _run(self, audio: np.ndarray) -> str:
+        return self._decode(audio)["text"]
+
+    def _decode(self, audio: np.ndarray, word_timestamps: bool = False,
+                initial_prompt: str | None = None) -> dict:
         import mlx_whisper
 
-        result = mlx_whisper.transcribe(
+        return mlx_whisper.transcribe(
             audio,
             path_or_hf_repo=self.model_repo,
             language=self.language,
             condition_on_previous_text=False,
             fp16=True,
             verbose=None,
+            word_timestamps=word_timestamps,
+            initial_prompt=initial_prompt,
         )
-        return result.get("text", "")
 
     def warm_up(self, sample_rate: int = 16000) -> None:
         """Download (first run) and load the model by transcribing 1 s of silence."""
-        self._run(np.zeros(sample_rate, dtype=np.float32))
+        silence = np.zeros(sample_rate, dtype=np.float32)
+        self._run(silence)
+        self._decode(silence, word_timestamps=True)
 
     def transcribe(self, audio: np.ndarray) -> str:
         audio = np.asarray(audio, dtype=np.float32)
@@ -59,3 +75,20 @@ class Transcriber:
         if clip_rms < self.silence_rms:
             return ""
         return clean_text(self._run(audio), clip_rms, self.silence_rms)
+
+    def transcribe_words(self, audio: np.ndarray, initial_prompt: str | None = None) -> list[Word]:
+        """Transcribe with word timestamps. Silent clips and artifacts give no words."""
+        audio = np.asarray(audio, dtype=np.float32)
+        clip_rms = rms(audio)
+        if clip_rms < self.silence_rms:
+            return []
+        result = self._decode(audio, word_timestamps=True, initial_prompt=initial_prompt)
+        if not clean_text(result.get("text", ""), clip_rms, self.silence_rms):
+            return []
+        words = []
+        for seg in result.get("segments", []):
+            for w in seg.get("words", []):
+                text = w["word"].strip()
+                if text:
+                    words.append(Word(text, float(w["start"]), float(w["end"])))
+        return words

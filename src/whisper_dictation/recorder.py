@@ -14,7 +14,8 @@ class Recorder:
         self.max_samples = int(max_seconds * sample_rate)
         self.on_max = on_max
         self._chunks: list[np.ndarray] = []
-        self._samples = 0
+        self._samples = 0  # samples currently in the buffer
+        self._total = 0    # samples captured since start, never reduced by trim
         self._stream: sd.InputStream | None = None
         self._lock = threading.Lock()
         self._max_fired = False
@@ -22,10 +23,11 @@ class Recorder:
     def _callback(self, indata, frames, time_info, status) -> None:
         fire = False
         with self._lock:
-            if self._samples < self.max_samples:
+            if self._total < self.max_samples:
                 self._chunks.append(indata[:, 0].copy())
                 self._samples += frames
-            if self._samples >= self.max_samples and not self._max_fired:
+                self._total += frames
+            if self._total >= self.max_samples and not self._max_fired:
                 self._max_fired = True
                 fire = True
         if fire and self.on_max:
@@ -36,6 +38,7 @@ class Recorder:
         with self._lock:
             self._chunks = []
             self._samples = 0
+            self._total = 0
             self._max_fired = False
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
@@ -55,4 +58,22 @@ class Recorder:
             chunks, self._chunks = self._chunks, []
         if not chunks:
             return np.zeros(0, dtype=np.float32)
-        return np.concatenate(chunks)[: self.max_samples]
+        return np.concatenate(chunks)
+
+    def snapshot(self) -> np.ndarray:
+        """Copy of the current buffer while recording continues."""
+        with self._lock:
+            if not self._chunks:
+                return np.zeros(0, dtype=np.float32)
+            if len(self._chunks) > 1:
+                self._chunks = [np.concatenate(self._chunks)]
+            return self._chunks[0].copy()
+
+    def trim(self, n_samples: int) -> None:
+        """Drop the first n_samples from the buffer."""
+        with self._lock:
+            if not self._chunks:
+                return
+            data = np.concatenate(self._chunks)[n_samples:]
+            self._chunks = [data] if data.size else []
+            self._samples = data.size
