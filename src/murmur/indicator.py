@@ -13,8 +13,7 @@ from collections.abc import Callable
 
 log = logging.getLogger("murmur")
 
-POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left",
-             "bottom-right")
+POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left", "bottom-right")
 PILL_W, PILL_H, MARGIN = 78.0, 26.0, 6.0
 
 MENUBAR_TITLES = {"idle": "mic", "recording": "REC", "transcribing": "..."}
@@ -87,8 +86,8 @@ class Overlay:
 
         style = AppKit.NSWindowStyleMaskBorderless | AppKit.NSWindowStyleMaskNonactivatingPanel
         panel = _Panel.alloc().initWithContentRect_styleMask_backing_defer_(
-            AppKit.NSMakeRect(0, 0, PILL_W, PILL_H), style, AppKit.NSBackingStoreBuffered,
-            False)
+            AppKit.NSMakeRect(0, 0, PILL_W, PILL_H), style, AppKit.NSBackingStoreBuffered, False
+        )
         panel.setLevel_(AppKit.NSStatusWindowLevel)
         panel.setOpaque_(False)
         panel.setBackgroundColor_(NSColor.clearColor())
@@ -100,12 +99,14 @@ class Overlay:
             AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
             | AppKit.NSWindowCollectionBehaviorStationary
             | AppKit.NSWindowCollectionBehaviorIgnoresCycle
-            | AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary)
+            | AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary
+        )
         content = panel.contentView()
         content.setWantsLayer_(True)
         content.layer().setCornerRadius_(PILL_H / 2)
         content.layer().setBackgroundColor_(
-            NSColor.colorWithCalibratedWhite_alpha_(0.08, 0.9).CGColor())
+            NSColor.colorWithCalibratedWhite_alpha_(0.08, 0.9).CGColor()
+        )
         dot = AppKit.NSView.alloc().initWithFrame_(AppKit.NSMakeRect(11, (PILL_H - 10) / 2, 10, 10))
         dot.setWantsLayer_(True)
         dot.layer().setCornerRadius_(5)
@@ -129,13 +130,17 @@ class Overlay:
         text, color = look
         rgb = {"red": (1.0, 0.19, 0.19), "orange": (1.0, 0.62, 0.04)}[color]
         self.dot.layer().setBackgroundColor_(
-            AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(*rgb, 1.0).CGColor())
+            AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(*rgb, 1.0).CGColor()
+        )
         self.label.setStringValue_(text)
         screen = AppKit.NSScreen.screens()[0]  # the screen that has the menu bar
         f, v = screen.frame(), screen.visibleFrame()
-        x, y = overlay_origin((f.origin.x, f.origin.y, f.size.width, f.size.height),
-                              (v.origin.x, v.origin.y, v.size.width, v.size.height),
-                              (PILL_W, PILL_H), self.position)
+        x, y = overlay_origin(
+            (f.origin.x, f.origin.y, f.size.width, f.size.height),
+            (v.origin.x, v.origin.y, v.size.width, v.size.height),
+            (PILL_W, PILL_H),
+            self.position,
+        )
         self.panel.setFrameOrigin_(AppKit.NSMakePoint(x, y))
         self.panel.orderFrontRegardless()  # never makeKey: focus stays in the typing app
 
@@ -168,8 +173,7 @@ class MenubarIndicator:
         import rumps
 
         self.rumps = rumps
-        self.item = rumps.App("murmur", title=MENUBAR_TITLES["idle"],
-                              quit_button="Quit")
+        self.item = rumps.App("murmur", title=MENUBAR_TITLES["idle"], quit_button="Quit")
 
     def _apply(self, state: str) -> None:
         self.item.title = MENUBAR_TITLES.get(state, MENUBAR_TITLES["idle"])
@@ -181,7 +185,8 @@ class MenubarIndicator:
         import AppKit
 
         AppKit.NSApplication.sharedApplication().setActivationPolicy_(
-            AppKit.NSApplicationActivationPolicyAccessory)
+            AppKit.NSApplicationActivationPolicyAccessory
+        )
         install_signal_handlers(self.stop)
         self.timer = self.rumps.Timer(lambda _t: None, 0.5)  # lets signal handlers run
         self.timer.start()

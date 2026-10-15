@@ -21,8 +21,7 @@ def dump_threads() -> str:
 
 
 def _fire(label: str, seconds: float) -> None:
-    log.error("%s has taken over %.0fs; thread stacks follow\n%s", label, seconds,
-              dump_threads())
+    log.error("%s has taken over %.0fs; thread stacks follow\n%s", label, seconds, dump_threads())
 
 
 @contextlib.contextmanager

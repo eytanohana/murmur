@@ -13,9 +13,9 @@ from murmur.watchdog import watchdog
 def test_utf16_chunks_respect_limit_and_pairs():
     chunks = inserter.utf16_chunks("a" * 45)
     assert [len(c) for c in chunks] == [20, 20, 5]
-    emoji = inserter.utf16_chunks("\U0001F600" * 11)
+    emoji = inserter.utf16_chunks("\U0001f600" * 11)
     assert all(len(c.encode("utf-16-le")) // 2 <= 20 for c in emoji)
-    assert "".join(emoji) == "\U0001F600" * 11
+    assert "".join(emoji) == "\U0001f600" * 11
     assert inserter.utf16_chunks("") == []
 
 
@@ -23,9 +23,13 @@ def test_post_text_clears_flags_and_chunks():
     calls = []
     with (
         mock.patch.object(inserter, "_source", return_value="src"),
-        mock.patch.object(inserter, "_post",
-                          side_effect=lambda src, kc, down, flags, text=None:
-                          calls.append((kc, down, flags, text))),
+        mock.patch.object(
+            inserter,
+            "_post",
+            side_effect=lambda src, kc, down, flags, text=None: calls.append(
+                (kc, down, flags, text)
+            ),
+        ),
         mock.patch.object(inserter.time, "sleep"),
     ):
         posted = inserter.post_text("x" * 25)
@@ -39,13 +43,17 @@ def test_paste_sends_only_command_flag():
     calls = []
     with (
         mock.patch.object(inserter, "_source", return_value="src"),
-        mock.patch.object(inserter, "_post",
-                          side_effect=lambda src, kc, down, flags, text=None:
-                          calls.append((kc, down, flags))),
+        mock.patch.object(
+            inserter,
+            "_post",
+            side_effect=lambda src, kc, down, flags, text=None: calls.append((kc, down, flags)),
+        ),
     ):
         inserter.post_cmd_v()
-    assert calls == [(9, True, inserter.Quartz.kCGEventFlagMaskCommand),
-                     (9, False, inserter.Quartz.kCGEventFlagMaskCommand)]
+    assert calls == [
+        (9, True, inserter.Quartz.kCGEventFlagMaskCommand),
+        (9, False, inserter.Quartz.kCGEventFlagMaskCommand),
+    ]
 
 
 def test_type_text_warns_once_without_accessibility(caplog):
@@ -63,8 +71,11 @@ def test_type_text_warns_once_without_accessibility(caplog):
 
 def test_injected_keys_do_not_cancel():
     events = []
-    h = HotkeyListener(lambda: events.append("press"), lambda: events.append("release"),
-                       lambda: events.append("other"))
+    h = HotkeyListener(
+        lambda: events.append("press"),
+        lambda: events.append("release"),
+        lambda: events.append("other"),
+    )
     h.handle_press(Key.alt_l)
     h.handle_press(KeyCode.from_char("a"), injected=True)
     h.handle_press(KeyCode.from_char("a"), injected=False)

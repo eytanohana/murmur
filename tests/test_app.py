@@ -51,8 +51,15 @@ def make(text="hello world", audio=None):
     clock = Clock()
     rec, tr, ins = FakeRecorder(audio), FakeTranscriber(text), FakeInserter()
     sounds = []
-    d = Dictation(Config(stream=False), rec, tr, ins, clock=clock, run_async=False,
-                  sound=lambda path, enabled: sounds.append(path))
+    d = Dictation(
+        Config(stream=False),
+        rec,
+        tr,
+        ins,
+        clock=clock,
+        run_async=False,
+        sound=lambda path, enabled: sounds.append(path),
+    )
     return SimpleNamespace(d=d, clock=clock, rec=rec, tr=tr, ins=ins, sounds=sounds)
 
 
@@ -90,10 +97,16 @@ def test_start_sound_plays_only_after_the_hold_threshold():
 
     rec, sounds = FakeRecorder(), []
     cfg = Config(stream=False, sounds=True, min_hold_ms=100)
-    d = Dictation(cfg, rec, FakeTranscriber(), FakeInserter(), run_async=False,
-                  sound=lambda path, enabled: sounds.append(path))
+    d = Dictation(
+        cfg,
+        rec,
+        FakeTranscriber(),
+        FakeInserter(),
+        run_async=False,
+        sound=lambda path, enabled: sounds.append(path),
+    )
     d.on_press()
-    assert sounds == []          # nothing at key down
+    assert sounds == []  # nothing at key down
     time.sleep(0.3)
     assert sounds == [cfg.start_sound]
     d.on_release()
@@ -105,8 +118,14 @@ def test_tap_before_threshold_plays_no_sound():
 
     rec, sounds = FakeRecorder(), []
     cfg = Config(stream=False, sounds=True, min_hold_ms=200)
-    d = Dictation(cfg, rec, FakeTranscriber(), FakeInserter(), run_async=False,
-                  sound=lambda path, enabled: sounds.append(path))
+    d = Dictation(
+        cfg,
+        rec,
+        FakeTranscriber(),
+        FakeInserter(),
+        run_async=False,
+        sound=lambda path, enabled: sounds.append(path),
+    )
     d.on_press()
     d.on_release()
     time.sleep(0.4)

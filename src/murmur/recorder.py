@@ -15,7 +15,7 @@ class Recorder:
         self.on_max = on_max
         self._chunks: list[np.ndarray] = []
         self._samples = 0  # samples currently in the buffer
-        self._total = 0    # samples captured since start, never reduced by trim
+        self._total = 0  # samples captured since start, never reduced by trim
         self._stream: sd.InputStream | None = None
         self._lock = threading.Lock()
         self._max_fired = False

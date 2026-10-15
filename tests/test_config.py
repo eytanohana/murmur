@@ -28,4 +28,8 @@ def test_unknown_key_rejected(tmp_path):
 def test_streaming_defaults(tmp_path):
     cfg = load_config(tmp_path / "none.toml")
     assert cfg.stream is True
-    assert (cfg.stream_interval, cfg.stream_holdback_words, cfg.stream_min_speech_s) == (0.5, 1, 0.3)
+    assert (cfg.stream_interval, cfg.stream_holdback_words, cfg.stream_min_speech_s) == (
+        0.5,
+        1,
+        0.3,
+    )

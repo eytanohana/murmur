@@ -73,8 +73,9 @@ def release_tail(committed: list[str], final: list[str]) -> tuple[list[str], boo
     return final[n:], mismatch
 
 
-def speech_seconds(audio: np.ndarray, sample_rate: int, threshold: float,
-                   frame_s: float = 0.02) -> float:
+def speech_seconds(
+    audio: np.ndarray, sample_rate: int, threshold: float, frame_s: float = 0.02
+) -> float:
     """Seconds of audio in 20 ms frames whose RMS is above the threshold."""
     frame = int(sample_rate * frame_s)
     if frame <= 0 or audio.size < frame:
@@ -84,21 +85,23 @@ def speech_seconds(audio: np.ndarray, sample_rate: int, threshold: float,
     return float(np.count_nonzero(frame_rms > threshold)) * frame_s
 
 
-def trailing_silence_s(audio: np.ndarray, sample_rate: int, threshold: float,
-                       frame_s: float = 0.02) -> float:
+def trailing_silence_s(
+    audio: np.ndarray, sample_rate: int, threshold: float, frame_s: float = 0.02
+) -> float:
     """Seconds of audio at the end whose 20 ms frames are all at or below the threshold."""
     frame = int(sample_rate * frame_s)
     if frame <= 0 or audio.size < frame:
         return 0.0
-    usable = audio[audio.size % frame:].reshape(-1, frame)  # align frames to the end
+    usable = audio[audio.size % frame :].reshape(-1, frame)  # align frames to the end
     loud = np.sqrt(np.mean(np.square(usable, dtype=np.float64), axis=1)) > threshold
     if not loud.any():
         return usable.shape[0] * frame_s
     return float(usable.shape[0] - 1 - np.nonzero(loud)[0][-1]) * frame_s
 
 
-def drop_trailing_silence(audio: np.ndarray, sample_rate: int, threshold: float,
-                          keep_s: float = 0.2) -> np.ndarray:
+def drop_trailing_silence(
+    audio: np.ndarray, sample_rate: int, threshold: float, keep_s: float = 0.2
+) -> np.ndarray:
     """Cut trailing silence down to `keep_s`. Whisper invents words over long silence."""
     extra = trailing_silence_s(audio, sample_rate, threshold) - keep_s
     if extra <= 0:
@@ -106,8 +109,9 @@ def drop_trailing_silence(audio: np.ndarray, sample_rate: int, threshold: float,
     return audio[: audio.size - int(extra * sample_rate)]
 
 
-def drop_leading_silence(audio: np.ndarray, sample_rate: int, threshold: float,
-                         keep_s: float = 0.2) -> tuple[np.ndarray, int]:
+def drop_leading_silence(
+    audio: np.ndarray, sample_rate: int, threshold: float, keep_s: float = 0.2
+) -> tuple[np.ndarray, int]:
     """Cut leading silence down to `keep_s`. Returns the audio and samples removed.
 
     Leading silence makes Whisper start with an invented word such as "Okay,".
@@ -119,8 +123,14 @@ def drop_leading_silence(audio: np.ndarray, sample_rate: int, threshold: float,
     return audio[removed:], removed
 
 
-def trim_sample(words, committed: int, sample_rate: int, total_samples: int,
-                audio: np.ndarray | None = None, threshold: float = 0.005) -> int | None:
+def trim_sample(
+    words,
+    committed: int,
+    sample_rate: int,
+    total_samples: int,
+    audio: np.ndarray | None = None,
+    threshold: float = 0.005,
+) -> int | None:
     """Sample index to cut the buffer at, after the last committed word.
 
     Whisper stretches the end time of a word that is followed by silence into the
@@ -138,9 +148,19 @@ def trim_sample(words, committed: int, sample_rate: int, total_samples: int,
         frame = int(sample_rate * 0.02)
         start = int(word.start * sample_rate)
         span = audio[start:cut]
-        quiet = np.sqrt(np.mean(np.square(
-            span[: span.size // frame * frame].reshape(-1, frame), dtype=np.float64),
-            axis=1)) <= threshold if span.size >= frame else np.zeros(0, dtype=bool)
+        quiet = (
+            np.sqrt(
+                np.mean(
+                    np.square(
+                        span[: span.size // frame * frame].reshape(-1, frame), dtype=np.float64
+                    ),
+                    axis=1,
+                )
+            )
+            <= threshold
+            if span.size >= frame
+            else np.zeros(0, dtype=bool)
+        )
         for i in range(5, len(quiet) - 2):  # skip the first 100 ms of the word
             if quiet[i] and quiet[i + 1] and quiet[i + 2]:
                 return start + i * frame
@@ -157,11 +177,11 @@ class Streamer:
         self.inserter = inserter
         self.clock = clock
         self.sr = cfg.sample_rate
-        self.seg_committed: list[str] = []   # committed words in the current buffer
-        self.prior_text = ""                 # committed text from trimmed segments
+        self.seg_committed: list[str] = []  # committed words in the current buffer
+        self.prior_text = ""  # committed text from trimmed segments
         self.prev_words: list = []
         self.last_pass_samples = 0
-        self.flushed_samples = 0   # buffer length at the last pause flush
+        self.flushed_samples = 0  # buffer length at the last pause flush
         self.inserted_any = False
         self.total_committed = 0
         self.pass_times: list[float] = []
@@ -205,12 +225,12 @@ class Streamer:
             return
         audio = self.recorder.snapshot()
         n = len(audio)
-        new = audio[self.last_pass_samples:]
+        new = audio[self.last_pass_samples :]
         # A pause after unflushed speech: run a pass and commit everything it heard.
         flush = (
             trailing_silence_s(audio, self.sr, self.cfg.silence_rms)
             >= self.cfg.stream_flush_silence_s
-            and speech_seconds(audio[self.flushed_samples:], self.sr, self.cfg.silence_rms)
+            and speech_seconds(audio[self.flushed_samples :], self.sr, self.cfg.silence_rms)
             >= self.cfg.stream_min_speech_s
         )
         if not flush and (
@@ -224,11 +244,9 @@ class Streamer:
         with watchdog("streaming pass"):
             # Long trailing silence makes Whisper invent words ("Okay,"), and a flush
             # would commit them for good.
-            heard = (drop_trailing_silence(audio, self.sr, self.cfg.silence_rms)
-                     if flush else audio)
+            heard = drop_trailing_silence(audio, self.sr, self.cfg.silence_rms) if flush else audio
             heard, removed = drop_leading_silence(heard, self.sr, self.cfg.silence_rms)
-            words = self.transcriber.transcribe_words(heard, self._prompt(),
-                                                      timestamps=need_cut)
+            words = self.transcriber.transcribe_words(heard, self._prompt(), timestamps=need_cut)
             offset = removed / self.sr
             words = [Word(w.text, w.start + offset, w.end + offset) for w in words]
         took = self.clock() - t0
@@ -236,25 +254,29 @@ class Streamer:
         self.last_pass_samples = n
         cur = [w.text for w in words]
         holdback = 0 if flush else self.cfg.stream_holdback_words
-        target = commit_target(len(self.seg_committed), [w.text for w in self.prev_words],
-                               cur, holdback)
+        target = commit_target(
+            len(self.seg_committed), [w.text for w in self.prev_words], cur, holdback
+        )
         if flush:
             target = max(target, len(cur))
             self.flushed_samples = n
             log.info("pause detected; flushing held-back words")
-        newly = cur[len(self.seg_committed):target]
+        newly = cur[len(self.seg_committed) : target]
         if newly and self._emit(newly):
             self.seg_committed.extend(newly)
         self.prev_words = words
-        log.info("stream pass end: %.2fs, text=%r, %d committed", took, " ".join(cur),
-                 self.total_committed)
+        log.info(
+            "stream pass end: %.2fs, text=%r, %d committed",
+            took,
+            " ".join(cur),
+            self.total_committed,
+        )
         self._maybe_trim(words, n, audio)
 
     def _maybe_trim(self, words, n: int, audio: np.ndarray) -> None:
         if n / self.sr <= self.cfg.stream_trim_s:
             return
-        cut = trim_sample(words, len(self.seg_committed), self.sr, n, audio,
-                          self.cfg.silence_rms)
+        cut = trim_sample(words, len(self.seg_committed), self.sr, n, audio, self.cfg.silence_rms)
         if cut is None:
             return
         self.recorder.trim(cut)
@@ -263,8 +285,9 @@ class Streamer:
         self.prev_words = []
         self.last_pass_samples = max(0, n - cut)
         self.flushed_samples = max(0, self.flushed_samples - cut)
-        log.info("buffer trimmed at %.1fs; continuing with %.1fs", cut / self.sr,
-                 (n - cut) / self.sr)
+        log.info(
+            "buffer trimmed at %.1fs; continuing with %.1fs", cut / self.sr, (n - cut) / self.sr
+        )
 
     def _emit(self, words: list[str]) -> bool:
         with self._lock:
@@ -295,18 +318,19 @@ class Streamer:
             with watchdog("final pass"):
                 heard = drop_trailing_silence(final_audio, self.sr, self.cfg.silence_rms)
                 heard, _ = drop_leading_silence(heard, self.sr, self.cfg.silence_rms)
-                words = self.transcriber.transcribe_words(heard, self._prompt(),
-                                                          timestamps=False)
+                words = self.transcriber.transcribe_words(heard, self._prompt(), timestamps=False)
             log.info("final pass end: text=%r", " ".join(w.text for w in words))
             self.pass_times.append(self.clock() - t0)
         final = [w.text for w in words]
         tail, mismatch = release_tail(self.seg_committed, final)
         if mismatch:
-            log.warning("final text disagrees with committed prefix; keeping inserted "
-                        "text. committed=%r final=%r", " ".join(self.seg_committed),
-                        " ".join(final))
+            log.warning(
+                "final text disagrees with committed prefix; keeping inserted "
+                "text. committed=%r final=%r",
+                " ".join(self.seg_committed),
+                " ".join(final),
+            )
         if tail:
             self._emit(tail)
-        log.info("released: %d words committed before release, %d in final tail",
-                 before, len(tail))
+        log.info("released: %d words committed before release, %d in final tail", before, len(tail))
         return tail

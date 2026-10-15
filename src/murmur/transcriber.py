@@ -48,8 +48,9 @@ class Transcriber:
     def _run(self, audio: np.ndarray) -> str:
         return self._decode(audio)["text"]
 
-    def _decode(self, audio: np.ndarray, word_timestamps: bool = False,
-                initial_prompt: str | None = None) -> dict:
+    def _decode(
+        self, audio: np.ndarray, word_timestamps: bool = False, initial_prompt: str | None = None
+    ) -> dict:
         import mlx_whisper
 
         return mlx_whisper.transcribe(
@@ -76,8 +77,9 @@ class Transcriber:
             return ""
         return clean_text(self._run(audio), clip_rms, self.silence_rms)
 
-    def transcribe_words(self, audio: np.ndarray, initial_prompt: str | None = None,
-                         timestamps: bool = True) -> list[Word]:
+    def transcribe_words(
+        self, audio: np.ndarray, initial_prompt: str | None = None, timestamps: bool = True
+    ) -> list[Word]:
         """Transcribe into words. Silent clips and artifacts give no words.
 
         Word timestamps cost about 0.4 s per call on top of a 0.4 s base, so callers

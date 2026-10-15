@@ -32,8 +32,17 @@ class State(enum.Enum):
 
 
 class Dictation:
-    def __init__(self, cfg: Config, recorder, transcriber, inserter, status=None,
-                 clock=time.monotonic, run_async: bool = True, sound=play_sound):
+    def __init__(
+        self,
+        cfg: Config,
+        recorder,
+        transcriber,
+        inserter,
+        status=None,
+        clock=time.monotonic,
+        run_async: bool = True,
+        sound=play_sound,
+    ):
         self.cfg = cfg
         self.recorder = recorder
         self.transcriber = transcriber
@@ -67,19 +76,24 @@ class Dictation:
             try:
                 self.recorder.start()
             except Exception as exc:  # noqa: BLE001
-                log.error("Could not start recording (%s). Check Microphone permission "
-                          "in System Settings > Privacy & Security.", exc)
+                log.error(
+                    "Could not start recording (%s). Check Microphone permission "
+                    "in System Settings > Privacy & Security.",
+                    exc,
+                )
                 return
             self._started_at = self.clock()
             self._set_state(State.RECORDING)
             if self.cfg.stream:
-                self.streamer = Streamer(self.cfg, self.recorder, self.transcriber,
-                                         self.inserter, self.clock)
+                self.streamer = Streamer(
+                    self.cfg, self.recorder, self.transcriber, self.inserter, self.clock
+                )
                 self.streamer.start()
             self._press_id += 1
             # Marks that the hold threshold passed (indicator and optional sound).
-            timer = threading.Timer(self.cfg.min_hold_ms / 1000, self._threshold_passed,
-                                    args=(self._press_id,))
+            timer = threading.Timer(
+                self.cfg.min_hold_ms / 1000, self._threshold_passed, args=(self._press_id,)
+            )
             timer.daemon = True
             timer.start()
 
@@ -131,9 +145,13 @@ class Dictation:
             t0 = self.clock()
             streamer.finish(audio)
             passes = streamer.pass_times
-            log.info("streamed %d words, %d passes, final pass %.2fs, release wait %.2fs",
-                     streamer.total_committed, len(passes),
-                     passes[-1] if passes else 0.0, self.clock() - t0)
+            log.info(
+                "streamed %d words, %d passes, final pass %.2fs, release wait %.2fs",
+                streamer.total_committed,
+                len(passes),
+                passes[-1] if passes else 0.0,
+                self.clock() - t0,
+            )
         except Exception:
             log.exception("Streaming finish failed")
         finally:
@@ -145,8 +163,12 @@ class Dictation:
             t0 = self.clock()
             text = self.transcriber.transcribe(audio)
             took = self.clock() - t0
-            log.info("recorded %.2fs, transcribed in %.2fs, %d chars",
-                     len(audio) / self.cfg.sample_rate, took, len(text))
+            log.info(
+                "recorded %.2fs, transcribed in %.2fs, %d chars",
+                len(audio) / self.cfg.sample_rate,
+                took,
+                len(text),
+            )
             if text:
                 self.inserter.insert(text)
             else:

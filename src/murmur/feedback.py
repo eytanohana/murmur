@@ -10,9 +10,7 @@ def play_sound(path: str, enabled: bool = True) -> None:
     if not enabled:
         return
     try:
-        subprocess.Popen(
-            ["afplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
+        subprocess.Popen(["afplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         pass
 

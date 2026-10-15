@@ -55,8 +55,12 @@ def test_transcribe_words_without_timestamps_splits_text():
 
 
 def test_transcribe_words_with_timestamps_joins_split_pieces():
-    raw = [{"word": " the", "start": 0.0, "end": 0.2}, {"word": " on", "start": 0.2, "end": 0.4},
-           {"word": "-call", "start": 0.4, "end": 0.7}, {"word": " now.", "start": 0.7, "end": 1.0}]
+    raw = [
+        {"word": " the", "start": 0.0, "end": 0.2},
+        {"word": " on", "start": 0.2, "end": 0.4},
+        {"word": "-call", "start": 0.4, "end": 0.7},
+        {"word": " now.", "start": 0.7, "end": 1.0},
+    ]
     t = Fake({"text": " the on-call now.", "segments": [{"words": raw}]})
     words = t.transcribe_words(LOUD, timestamps=True)
     assert [w.text for w in words] == ["the", "on-call", "now."]

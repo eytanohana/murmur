@@ -105,9 +105,11 @@ class Inserter:
     def _check_trust(self) -> None:
         if not self._warned and not accessibility_trusted():
             self._warned = True
-            log.warning("Accessibility is not granted, so macOS silently drops typed and "
-                        "pasted keys. Grant it to your terminal in System Settings > "
-                        "Privacy & Security > Accessibility, then restart the terminal.")
+            log.warning(
+                "Accessibility is not granted, so macOS silently drops typed and "
+                "pasted keys. Grant it to your terminal in System Settings > "
+                "Privacy & Security > Accessibility, then restart the terminal."
+            )
 
     def insert(self, text: str) -> None:
         if not text:

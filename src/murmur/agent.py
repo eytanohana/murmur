@@ -23,8 +23,9 @@ def project_dir() -> Path:
     """Repo root: the folder that holds pyproject.toml and .venv."""
     root = Path(__file__).resolve().parents[2]
     if not (root / "pyproject.toml").exists():
-        raise SystemExit(f"Cannot find the project root at {root}; run from a checkout "
-                         "installed with `uv sync`.")
+        raise SystemExit(
+            f"Cannot find the project root at {root}; run from a checkout installed with `uv sync`."
+        )
     return root
 
 
@@ -91,8 +92,13 @@ def domain() -> str:
     return f"gui/{os.getuid()}"
 
 
-def install(home: Path, runner: Runner = run_command, dry_run: bool = False,
-            no_start: bool = False, out: Callable[[str], None] = print) -> int:
+def install(
+    home: Path,
+    runner: Runner = run_command,
+    dry_run: bool = False,
+    no_start: bool = False,
+    out: Callable[[str], None] = print,
+) -> int:
     project = project_dir()
     python = project / ".venv" / "bin" / "python"
     if not python.exists():
@@ -129,8 +135,12 @@ def install(home: Path, runner: Runner = run_command, dry_run: bool = False,
     return 0
 
 
-def uninstall(home: Path, runner: Runner = run_command, dry_run: bool = False,
-              out: Callable[[str], None] = print) -> int:
+def uninstall(
+    home: Path,
+    runner: Runner = run_command,
+    dry_run: bool = False,
+    out: Callable[[str], None] = print,
+) -> int:
     path = plist_path(home)
     if dry_run:
         out(f"[dry run] would run: launchctl bootout {domain()}/{LABEL}")
@@ -147,8 +157,7 @@ def uninstall(home: Path, runner: Runner = run_command, dry_run: bool = False,
     return 0
 
 
-def status(home: Path, runner: Runner = run_command,
-           out: Callable[[str], None] = print) -> int:
+def status(home: Path, runner: Runner = run_command, out: Callable[[str], None] = print) -> int:
     path = plist_path(home)
     out(f"plist: {path} ({'present' if path.exists() else 'missing'})")
     out(f"log:   {log_path(home)}")

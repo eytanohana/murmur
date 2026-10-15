@@ -5,8 +5,12 @@ from murmur.hotkey import HotkeyListener
 
 def make(option_keys="both"):
     events = []
-    h = HotkeyListener(lambda: events.append("press"), lambda: events.append("release"),
-                       lambda: events.append("other"), option_keys)
+    h = HotkeyListener(
+        lambda: events.append("press"),
+        lambda: events.append("release"),
+        lambda: events.append("other"),
+        option_keys,
+    )
     return h, events
 
 

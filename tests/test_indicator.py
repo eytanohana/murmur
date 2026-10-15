@@ -103,7 +103,7 @@ def test_indicator_shows_recording_only_after_the_hold_threshold():
     status = RecordingStatus()
     d = make(status)
     d.on_press()
-    assert status.states == []            # nothing at key down
+    assert status.states == []  # nothing at key down
     time.sleep(0.25)
     assert status.states == ["recording"]
     time.sleep(0.0)
