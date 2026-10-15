@@ -23,6 +23,40 @@ Grant these to the terminal app that runs the command, in System Settings > Priv
 
 The app prints a warning at startup for Accessibility and Input Monitoring if they look missing.
 
+## Run at login
+
+A LaunchAgent starts dictation at login and keeps it running; hold Option anywhere.
+
+```
+uv sync
+uv run whisper-dictation install-agent --dry-run   # print the plist and commands only
+uv run whisper-dictation install-agent             # write the plist, lint it, start the agent
+uv run whisper-dictation agent-status
+uv run whisper-dictation uninstall-agent
+```
+
+`install-agent` writes `~/Library/LaunchAgents/com.user.whisper-dictation.plist` and runs `launchctl bootstrap gui/$UID`. The agent runs `.venv/bin/python -m whisper_dictation` directly (not `uv run`) from the project folder, with `RunAtLoad`, `ProcessType Interactive`, and `KeepAlive` set to restart only after a crash (non-zero exit); a clean exit or Ctrl+C-style stop stays stopped. `HF_HUB_OFFLINE=1` is set so login does not need the network; run the app once in a terminal after changing `model_repo` so the new model is downloaded. `--no-start` writes the plist without running launchctl.
+
+**Logs:** `tail -f ~/Library/Logs/whisper-dictation.log` (stdout and stderr, including permission warnings).
+
+**After editing the config:** `launchctl kickstart -k gui/$(id -u)/com.user.whisper-dictation`
+
+**Permissions:** with no terminal attached, macOS attributes the permissions to the Python binary itself, not to your terminal. `install-agent` prints its path after installing, with symlinks resolved (for example `~/.local/share/uv/python/cpython-3.12.x-macos-aarch64-none/bin/python3.12`). In System Settings > Privacy & Security add that binary to Accessibility, Input Monitoring and Microphone (click +, press Cmd+Shift+G, paste the path), then run the kickstart command above. At startup the app requests the prompts for itself and warns in the log, naming the binary, when Accessibility or Input Monitoring is missing or the microphone returns only silence.
+
+**After a Python upgrade:** uv-managed Python lives in a versioned folder, so a new patch release is a new binary and loses the grants. Run `uv run whisper-dictation install-agent` again to print the new path, add it to the three lists, remove the stale entry, and kickstart. The trade-off: this path is stable until uv upgrades Python for the project (`uv python pin` or a fixed `.python-version` such as 3.12.13 limits that), whereas a system or Homebrew Python resolves to a versioned path as well, and a signed app bundle would give a permanent identity at the cost of packaging work this project does not do.
+
+**Idle cost** with large-v3-turbo loaded, measured on the M4 Pro as a normal foreground process (`.venv/bin/python -m whisper_dictation`, no input):
+
+| Measure | Value |
+| --- | --- |
+| Resident memory (RSS) | 1927 MB, unchanged after 60 s |
+| Memory footprint (`footprint`) | 2595 MB, of which 2397 MB is GPU buffers (IOAccelerator) |
+| CPU over 60 s | 0.09% of one core (0.05 s of CPU time) |
+| Threads | 28 |
+| Peak during streaming (43 s clip, real-time feed) | RSS 2017 MB, footprint 4101 MB |
+
+The footprint peak includes MLX's GPU buffer cache growing across passes of different lengths; it is not released while the process runs.
+
 ## Checking insertion without the microphone
 
 ```

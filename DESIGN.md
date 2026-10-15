@@ -74,6 +74,7 @@ src/whisper_dictation/
   app.py          state machine: IDLE -> RECORDING -> TRANSCRIBING -> IDLE
   streaming.py    stable-prefix commit logic and the per-utterance Streamer
   feedback.py     sounds, menu bar
+  agent.py        LaunchAgent plist and launchctl commands
 tests/            pytest; unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
 ```
 
@@ -83,6 +84,10 @@ Notes:
 - Transcription runs on a worker thread; the hotkey listener thread never blocks.
 - Hotkey detection for a modifier alone needs modifier flag changes. With pynput use `Key.alt`, `Key.alt_l`, `Key.alt_r`.
 - macOS permissions needed by the terminal app running this: Accessibility (synthetic Cmd+V), Input Monitoring (global key listening), Microphone. The app should detect a missing permission where possible and print which one to grant in System Settings > Privacy & Security.
+
+## Run at login
+
+`whisper-dictation install-agent`, `uninstall-agent` and `agent-status` manage a LaunchAgent (`com.user.whisper-dictation`) built by `agent.py`. It runs the venv python directly so the privacy permission target is one stable binary, restarts only after a non-zero exit, logs to `~/Library/Logs/whisper-dictation.log` and sets `HF_HUB_OFFLINE=1`. Permissions attach to the resolved python binary when there is no terminal; the app requests the prompts at startup and names the binary in warnings. See the README for idle cost and the re-grant steps after a Python upgrade.
 
 ## Tooling
 
