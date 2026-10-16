@@ -62,9 +62,9 @@ def test_insert_mode_submenu_is_only_enabled_when_streaming_is_off():
 def test_restart_item_names_the_pending_restart_keys():
     plain = find(settings.build_menu(Config()), "Restart murmur")
     assert (plain.enabled, plain.checked) == (True, False)
-    pending = settings.build_menu(Config(), pending=["language", "indicator"])
+    pending = settings.build_menu(Config(), pending=["menubar_icon", "indicator"])
     item = next(i for i in pending if i.action == "restart")
-    assert item.title == "Restart to apply changes (indicator, language)"
+    assert item.title == "Restart to apply changes (indicator, menubar_icon)"
     assert (item.enabled, item.checked) == (True, True)
 
 

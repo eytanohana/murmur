@@ -43,19 +43,23 @@ def test_unchanged_mtime_costs_one_stat_and_no_parse(setup, monkeypatch):
 
 def test_a_changed_file_applies_live_keys_and_flags_restart_keys(setup):
     live, stat, path = setup
-    edit(path, stat, 'sounds = true\nstream_interval = 0.8\nlanguage = "fr"\nindicator = "none"\n')
+    edit(
+        path,
+        stat,
+        'sounds = true\nstream_interval = 0.8\nsample_rate = 16000\nindicator = "none"\nmenubar_icon = true\n',
+    )
     assert live.refresh() is True
     assert (live.cfg.sounds, live.cfg.stream_interval) == (True, 0.8)
-    assert live.cfg.language == "en" and live.cfg.indicator == "overlay"  # not applied live
-    assert live.pending == {"language": "fr", "indicator": "none"}
+    assert live.cfg.indicator == "overlay" and live.cfg.menubar_icon is False  # not applied live
+    assert live.pending == {"indicator": "none", "menubar_icon": True}
     assert live.error is None
 
 
 def test_changing_a_restart_key_back_clears_the_pending_flag(setup):
     live, stat, path = setup
-    edit(path, stat, 'language = "fr"\n')
+    edit(path, stat, 'indicator = "none"\n')
     live.refresh()
-    edit(path, stat, 'language = "en"\n')
+    edit(path, stat, 'indicator = "overlay"\n')
     live.refresh()
     assert live.pending == {}
 
@@ -107,8 +111,8 @@ def test_own_write_updates_the_remembered_mtime_and_is_not_reloaded(setup, monke
 
 def test_set_value_for_a_restart_key_is_pending_not_live(setup):
     live, _, _ = setup
-    live.set_value("language", "fr")
-    assert live.cfg.language == "en" and live.pending == {"language": "fr"}
+    live.set_value("indicator", "none")
+    assert live.cfg.indicator == "overlay" and live.pending == {"indicator": "none"}
 
 
 def test_set_value_validates(setup):

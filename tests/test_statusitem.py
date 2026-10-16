@@ -67,11 +67,11 @@ def test_open_config_creates_the_file_and_opens_it(item, live, monkeypatch):
 
 
 def test_opening_the_menu_rereads_a_changed_file_and_redraws(item, live):
-    live.path.write_text('sounds = true\nlanguage = "fr"\n')
+    live.path.write_text('sounds = true\nindicator = "none"\n')
     item._on_open()
-    assert live.cfg.sounds is True and live.pending == {"language": "fr"}
+    assert live.cfg.sounds is True and live.pending == {"indicator": "none"}
     titles = [i.title for i in item.filled]
-    assert "Restart to apply changes (language)" in titles
+    assert "Restart to apply changes (indicator)" in titles
 
 
 def test_opening_the_menu_with_a_broken_file_shows_the_error_header(item, live):

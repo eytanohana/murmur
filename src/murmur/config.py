@@ -6,10 +6,16 @@ import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-OPTION_KEYS = ("left", "right", "both")
-INDICATORS = ("none", "overlay")
-INSERT_MODES = ("paste", "type")
-POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left", "bottom-right")
+from .settings_schema import (  # noqa: F401  re-exported: the schema owns these values
+    INDICATORS,
+    INSERT_MODES,
+    LIVE_KEYS,
+    OPTION_KEYS,
+    POSITIONS,
+    RESTART_KEYS,
+    validate_setting,
+)
+
 CONFIG_PATH = Path.home() / ".config" / "murmur" / "config.toml"
 
 
@@ -45,52 +51,6 @@ class Config:
     stream_min_speech_s: float = 0.3
     # A pause this long flushes held-back words and the unsettled tail while Option is held.
     stream_flush_silence_s: float = 0.7
-
-
-def check_choice(key: str, value: str, valid: tuple[str, ...]) -> None:
-    if value not in valid:
-        options = ", ".join(repr(v) for v in valid[:-1]) + f" or {valid[-1]!r}"
-        raise ValueError(f"{key} must be {options}")
-
-
-def check_type(key: str, value: object, default: object) -> None:
-    """Require the value to have the type of the field's default.
-
-    bool fields accept only bool, int fields reject bool, float fields take int or
-    float but not bool (TOML has no implicit conversions and bool is an int in Python).
-    """
-    expected = type(default)
-    if expected is float:
-        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
-    elif expected is int:
-        ok = isinstance(value, int) and not isinstance(value, bool)
-    else:
-        ok = isinstance(value, expected)
-    if not ok:
-        raise ValueError(f"{key} must be {expected.__name__}, got {type(value).__name__}")
-
-
-# Keys that need a reload to take effect; every other key applies live, on the next
-# dictation, because collaborators read them from the shared Config.
-RESTART_KEYS = frozenset({"model_repo", "language", "sample_rate", "indicator", "menubar_icon"})
-LIVE_KEYS = frozenset(f.name for f in fields(Config)) - RESTART_KEYS
-
-CHOICES = {
-    "option_keys": OPTION_KEYS,
-    "indicator": INDICATORS,
-    "indicator_position": POSITIONS,
-    "insert_mode": INSERT_MODES,
-}
-
-
-def validate_setting(key: str, value: object) -> None:
-    """Raise ValueError unless `key` is a config key and `value` is valid for it."""
-    defaults = Config()
-    if not hasattr(defaults, key):
-        raise ValueError(f"Unknown config key: {key}")
-    check_type(key, value, getattr(defaults, key))
-    if key in CHOICES:
-        check_choice(key, value, CHOICES[key])
 
 
 def load_config(path: Path | None = None) -> Config:
