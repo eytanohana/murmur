@@ -16,7 +16,7 @@ from .hotkey import HotkeyListener
 from .inserter import Inserter
 from .permissions import check_permissions
 from .recorder import Recorder
-from .settings import restart_now
+from .settings import LiveSettings, restart_now
 from .transcriber import Transcriber
 
 log = logging.getLogger("murmur")
@@ -52,10 +52,11 @@ def run_dictation(cfg: Config, config_path: Path) -> None:
     def restart() -> None:
         restart_now(lambda: (listener.stop(), recorder.stop()))
 
-    indicator = make_indicator(cfg, config_path, restart)
+    live = LiveSettings(config_path, cfg)
+    indicator = make_indicator(live, restart)
     recorder = Recorder(cfg)
     inserter = Inserter(cfg)
-    dictation = Dictation(cfg, recorder, transcriber, inserter, indicator)
+    dictation = Dictation(cfg, recorder, transcriber, inserter, indicator, refresh=live.refresh)
     listener = HotkeyListener(dictation.on_press, dictation.on_release, dictation.on_other_key, cfg)
     listener.start()
     log.info(

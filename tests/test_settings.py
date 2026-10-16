@@ -4,6 +4,8 @@ from murmur import settings
 from murmur.agent import LABEL
 from murmur.config import POSITIONS, Config, load_config
 
+INSERT_LABEL = "Insert mode (used when streaming is off)"
+
 
 def flatten(items):
     for item in items:
@@ -28,7 +30,7 @@ def test_icon_per_state():
 
 
 def test_menu_headers_show_status_and_model_and_are_disabled():
-    menu = settings.build_menu(Config(model_repo="org/model"), changed=False)
+    menu = settings.build_menu(Config(model_repo="org/model"))
     assert [(i.title, i.enabled) for i in menu[:2]] == [
         ("murmur is running", False),
         ("org/model", False),
@@ -36,36 +38,44 @@ def test_menu_headers_show_status_and_model_and_are_disabled():
 
 
 def test_toggles_show_the_current_value_and_write_the_opposite():
-    menu = settings.build_menu(Config(stream=True, sounds=False), changed=False)
+    menu = settings.build_menu(Config(stream=True, sounds=False))
     streaming, sounds = find(menu, "Streaming"), find(menu, "Sounds")
     assert (streaming.checked, streaming.key, streaming.value) == (True, "stream", False)
     assert (sounds.checked, sounds.key, sounds.value) == (False, "sounds", True)
 
 
 def test_position_submenu_has_one_radio_checkmark_per_current_value():
-    menu = settings.build_menu(Config(indicator_position="bottom-left"), changed=False)
+    menu = settings.build_menu(Config(indicator_position="bottom-left"), pending=[])
     submenu = find(menu, "Overlay position")
     assert [c.title for c in submenu.children] == list(POSITIONS)
     assert [c.title for c in submenu.children if c.checked] == ["bottom-left"]
     assert all(c.key == "indicator_position" and c.value == c.title for c in submenu.children)
 
 
-def test_insert_mode_submenu():
-    submenu = find(
-        settings.build_menu(Config(insert_mode="type"), False), "Insert mode (when not streaming)"
-    )
-    assert [(c.title, c.checked) for c in submenu.children] == [("paste", False), ("type", True)]
+def test_insert_mode_submenu_is_only_enabled_when_streaming_is_off():
+    on = find(settings.build_menu(Config(insert_mode="type", stream=True)), INSERT_LABEL)
+    off = find(settings.build_menu(Config(insert_mode="type", stream=False)), INSERT_LABEL)
+    assert on.enabled is False and off.enabled is True
+    assert [(c.title, c.checked) for c in off.children] == [("paste", False), ("type", True)]
 
 
-def test_restart_item_is_enabled_and_marked_only_after_a_change():
-    idle = find(settings.build_menu(Config(), changed=False), "Restart to apply changes")
-    changed = find(settings.build_menu(Config(), changed=True), "Restart to apply changes")
-    assert (idle.enabled, idle.checked) == (False, False)
-    assert (changed.enabled, changed.checked) == (True, True)
+def test_restart_item_names_the_pending_restart_keys():
+    plain = find(settings.build_menu(Config()), "Restart murmur")
+    assert (plain.enabled, plain.checked) == (True, False)
+    pending = settings.build_menu(Config(), pending=["language", "indicator"])
+    item = next(i for i in pending if i.action == "restart")
+    assert item.title == "Restart to apply changes (indicator, language)"
+    assert (item.enabled, item.checked) == (True, True)
+
+
+def test_config_error_replaces_the_running_header():
+    menu = settings.build_menu(Config(), error="bad value")
+    assert (menu[0].title, menu[0].enabled) == ("Config error: see log", False)
+    assert settings.build_menu(Config())[0].title == "murmur is running"
 
 
 def test_actions_and_order():
-    menu = settings.build_menu(Config(), changed=False)
+    menu = settings.build_menu(Config(), pending=[])
     actions = [i.action for i in menu if i.kind == "action"]
     assert actions == ["open_config", "restart", "quit"]
     assert menu[-1].title == "Quit murmur"

@@ -2,21 +2,32 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+import tomllib
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 import tomlkit
 
 from .agent import LABEL, service_target
-from .config import INSERT_MODES, POSITIONS, Config, validate_setting
+from .config import (
+    INSERT_MODES,
+    LIVE_KEYS,
+    POSITIONS,
+    Config,
+    load_config,
+    validate_setting,
+)
 
 CONFIG_HEADER = (
     "# murmur config. Every key is optional; see the README for the full list.\n"
     "# Changes apply after murmur restarts.\n"
 )
+
+log = logging.getLogger("murmur")
 
 ICON_IDLE = "mic"
 ICON_RECORDING = "mic.fill"
@@ -48,8 +59,14 @@ class MenuItem:
     children: tuple[MenuItem, ...] = ()
 
 
-def build_menu(cfg: Config, changed: bool) -> list[MenuItem]:
-    """The menu for the values in `cfg` (pending values included); `changed` marks a restart."""
+def build_menu(
+    cfg: Config, pending: Sequence[str] = (), error: str | None = None
+) -> list[MenuItem]:
+    """The menu for the live `cfg`.
+
+    `pending` names RESTART keys changed in the file but not yet applied; `error` is set
+    when the file on disk is invalid and the old values are being kept.
+    """
     positions = tuple(
         MenuItem("setting", p, "indicator_position", p, checked=cfg.indicator_position == p)
         for p in POSITIONS
@@ -58,21 +75,29 @@ def build_menu(cfg: Config, changed: bool) -> list[MenuItem]:
         MenuItem("setting", m, "insert_mode", m, checked=cfg.insert_mode == m) for m in INSERT_MODES
     )
     return [
-        MenuItem("header", "murmur is running", enabled=False),
+        MenuItem(
+            "header", "Config error: see log" if error else "murmur is running", enabled=False
+        ),
         MenuItem("header", cfg.model_repo, enabled=False),
         MenuItem("separator"),
         MenuItem("setting", "Streaming", "stream", not cfg.stream, checked=cfg.stream),
         MenuItem("setting", "Sounds", "sounds", not cfg.sounds, checked=cfg.sounds),
         MenuItem("submenu", "Overlay position", children=positions),
-        MenuItem("submenu", "Insert mode (when not streaming)", children=modes),
+        MenuItem(
+            "submenu",
+            "Insert mode (used when streaming is off)",
+            enabled=not cfg.stream,
+            children=modes,
+        ),
         MenuItem("separator"),
         MenuItem("action", "Open config file", action="open_config"),
         MenuItem(
             "action",
-            "Restart to apply changes",
+            f"Restart to apply changes ({', '.join(sorted(pending))})"
+            if pending
+            else "Restart murmur",
             action="restart",
-            checked=changed,
-            enabled=changed,
+            checked=bool(pending),
         ),
         MenuItem("action", "Quit murmur", action="quit"),
     ]
@@ -120,3 +145,68 @@ def restart_now(stop_everything) -> None:  # pragma: no cover - replaces the pro
         subprocess.Popen(command)  # kickstart -k stops this process and starts a new one
     else:
         os.execv(command[0], command)
+
+
+def file_mtime(path: Path) -> int | None:
+    """Modification time in ns, or None when the file is missing or unreadable."""
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+class LiveSettings:
+    """The one live Config plus what changed on disk that still needs a restart.
+
+    The file is checked only when refresh() is called (a key press, a menu opening):
+    one stat, and a reload only when the mtime moved. Our own writes update the
+    remembered mtime so they are not reloaded.
+    """
+
+    def __init__(self, path: Path, cfg: Config, stat: Callable[[Path], int | None] = file_mtime):
+        self.path = path
+        self.cfg = cfg
+        self.pending: dict[str, object] = {}  # RESTART keys whose file value differs
+        self.error: str | None = None  # set while the file on disk is invalid
+        self._stat = stat
+        self._seen = stat(path)
+
+    def _apply(self, key: str, value: object) -> None:
+        if key in LIVE_KEYS:
+            setattr(self.cfg, key, value)
+        elif value != getattr(self.cfg, key):
+            self.pending[key] = value
+        else:
+            self.pending.pop(key, None)
+
+    def refresh(self) -> bool:
+        """Reload if the file changed since we last saw it. True when it was (re)read."""
+        mtime = self._stat(self.path)
+        if mtime == self._seen:
+            return False
+        self._seen = mtime
+        try:
+            new = load_config(self.path)
+        except (ValueError, tomllib.TOMLDecodeError, OSError) as exc:
+            self.error = str(exc)
+            log.warning("Ignoring %s, keeping the previous settings: %s", self.path, exc)
+            return True
+        self.error = None
+        changed = [k for k in LIVE_KEYS if getattr(new, k) != getattr(self.cfg, k)]
+        for f in fields(Config):
+            self._apply(f.name, getattr(new, f.name))
+        if changed:
+            log.info(
+                "Config reloaded: %s (applies on the next Option press)",
+                ", ".join(f"{k}={getattr(new, k)!r}" for k in sorted(changed)),
+            )
+        if self.pending:
+            log.info("Restart murmur to apply: %s", ", ".join(sorted(self.pending)))
+        return True
+
+    def set_value(self, key: str, value: object) -> None:
+        """Validate, write and apply one setting. Raises ValueError or OSError."""
+        write_setting(self.path, key, value)
+        self._seen = self._stat(self.path)  # our own write: do not reload it
+        self.error = None
+        self._apply(key, value)

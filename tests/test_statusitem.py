@@ -1,16 +1,22 @@
-"""StatusItem state handling that needs no display (nothing is built)."""
+"""StatusItem click handling that needs no display (nothing is built)."""
 
 import pytest
 
 from murmur import statusitem
 from murmur.config import Config, load_config
-from murmur.settings import MenuItem
+from murmur.settings import LiveSettings, MenuItem
 
 
 @pytest.fixture
-def item(tmp_path):
-    it = statusitem.StatusItem(Config(), tmp_path / "config.toml", on_restart=lambda: None)
-    it._rebuild_menu = lambda: None  # no AppKit menu in these tests
+def live(tmp_path):
+    return LiveSettings(tmp_path / "config.toml", Config())
+
+
+@pytest.fixture
+def item(live):
+    it = statusitem.StatusItem(live, on_restart=lambda: None)
+    it.menu = type("M", (), {"removeAllItems": lambda self: None})()
+    it._fill = lambda menu, items: setattr(it, "filled", items)  # no AppKit menu here
     return it
 
 
@@ -18,50 +24,62 @@ def setting(key, value):
     return MenuItem("setting", key=key, value=value)
 
 
-def test_a_setting_click_writes_the_file_and_marks_a_pending_restart(item):
-    item._by_tag[1] = setting("stream", False)
+def test_a_setting_click_writes_the_file_and_applies_it_to_the_live_config(item, live):
+    item._by_tag[1] = setting("sounds", True)
     item._on_click(1)
-    assert load_config(item.config_path).stream is False
-    assert item.cfg.stream is False and item.changed is True
-    assert Config().stream is True  # the loaded defaults are not mutated
+    assert load_config(live.path).sounds is True
+    assert live.cfg.sounds is True
 
 
-def test_a_failed_write_changes_nothing(item, caplog, monkeypatch):
+def test_a_failed_write_changes_nothing(item, live, caplog, monkeypatch):
     def fail(*a):
         raise OSError("disk full")
 
-    monkeypatch.setattr(statusitem, "write_setting", fail)
-    item._by_tag[1] = setting("stream", False)
+    monkeypatch.setattr("murmur.settings.write_setting", fail)
+    item._by_tag[1] = setting("sounds", True)
     with caplog.at_level("ERROR", logger="murmur"):
         item._on_click(1)
-    assert item.cfg.stream is True and item.changed is False
-    assert "Could not save stream" in caplog.text
+    assert live.cfg.sounds is False
+    assert "Could not save sounds" in caplog.text
 
 
-def test_an_invalid_value_is_rejected_before_anything_is_written(item):
+def test_an_invalid_value_is_rejected_before_anything_is_written(item, live):
     item._by_tag[1] = setting("indicator_position", "middle")
     item._on_click(1)
-    assert not item.config_path.exists() and item.changed is False
+    assert not live.path.exists() and live.cfg.indicator_position == "top-center"
 
 
-def test_restart_click_calls_the_restart_callback(tmp_path):
+def test_restart_click_calls_the_restart_callback(live):
     called = []
-    it = statusitem.StatusItem(Config(), tmp_path / "c.toml", lambda: called.append(1))
+    it = statusitem.StatusItem(live, lambda: called.append(1))
     it._by_tag[1] = MenuItem("action", action="restart")
     it._on_click(1)
     assert called == [1]
 
 
-def test_open_config_creates_the_file_opens_it_and_offers_a_restart(item, monkeypatch):
+def test_open_config_creates_the_file_and_opens_it(item, live, monkeypatch):
     opened = []
     monkeypatch.setattr(statusitem.subprocess, "Popen", lambda cmd: opened.append(cmd))
     item._by_tag[1] = MenuItem("action", action="open_config")
     item._on_click(1)
-    assert item.config_path.read_text().startswith("# murmur config.")
-    assert opened == [["open", "-t", str(item.config_path)]]
-    assert item.changed is True
+    assert live.path.read_text().startswith("# murmur config.")
+    assert opened == [["open", "-t", str(live.path)]]
 
 
-def test_unknown_tag_is_ignored(item):
+def test_opening_the_menu_rereads_a_changed_file_and_redraws(item, live):
+    live.path.write_text('sounds = true\nlanguage = "fr"\n')
+    item._on_open()
+    assert live.cfg.sounds is True and live.pending == {"language": "fr"}
+    titles = [i.title for i in item.filled]
+    assert "Restart to apply changes (language)" in titles
+
+
+def test_opening_the_menu_with_a_broken_file_shows_the_error_header(item, live):
+    live.path.write_text("sounds = [\n")
+    item._on_open()
+    assert item.filled[0].title == "Config error: see log"
+
+
+def test_unknown_tag_is_ignored(item, live):
     item._on_click(99)
-    assert item.changed is False
+    assert not live.path.exists()

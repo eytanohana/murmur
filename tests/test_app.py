@@ -196,3 +196,43 @@ def test_streaming_tap_cancels_the_streamer(make_dictation):
     streamer = r.d.streamer
     hold(r, 0.4)
     assert streamer.cancelled and r.d.streamer is None
+
+
+def test_the_config_is_refreshed_at_key_down_before_recording_and_the_snapshot(make_dictation):
+    r = make_dictation()
+    order = []
+    r.rec.start = lambda: order.append("recorder.start")
+
+    def refresh():
+        order.append("refresh")
+        r.d.cfg.sounds = True  # as if the file had just been reloaded
+
+    r.d.refresh = refresh
+    r.d.on_press()
+    assert order == ["refresh", "recorder.start"]
+    r.schedule.fire()
+    assert r.sounds == [r.d.cfg.start_sound]  # this very press already uses the new value
+
+
+def test_presses_that_are_ignored_do_not_refresh(make_dictation):
+    r = make_dictation()
+    calls = []
+    r.d.refresh = lambda: calls.append(1)
+    r.d.on_press()
+    r.d.on_press()  # already recording
+    r.d.state = State.TRANSCRIBING
+    r.d.on_press()
+    assert calls == [1]
+
+
+def test_a_failing_refresh_never_blocks_dictation(make_dictation, caplog):
+    r = make_dictation()
+
+    def boom():
+        raise RuntimeError("refresh failed")
+
+    r.d.refresh = boom
+    with caplog.at_level(logging.ERROR, logger="murmur"):
+        r.d.on_press()
+    assert r.d.state is State.RECORDING and r.rec.started == 1
+    assert "Config refresh failed" in caplog.text

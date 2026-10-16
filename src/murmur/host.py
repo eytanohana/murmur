@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import signal
 from collections.abc import Callable
-from pathlib import Path
 from typing import Protocol
 
-from .config import Config
 from .indicator import Indicator, NullIndicator, Overlay
+from .settings import LiveSettings
 
 
 class Part(Protocol):
@@ -55,15 +54,14 @@ def install_signal_handlers(stop: Callable[[], None]) -> None:
         signal.signal(sig, lambda *_: stop())
 
 
-def make_indicator(
-    cfg: Config, config_path: Path, on_restart: Callable[[], None] = lambda: None
-) -> Indicator:
+def make_indicator(live: LiveSettings, on_restart: Callable[[], None] = lambda: None) -> Indicator:
     """Pill and/or status item per the config; a null indicator when both are off."""
+    cfg = live.cfg
     parts: list[Part] = []
     if cfg.indicator == "overlay":
         parts.append(Overlay(cfg))
     if cfg.menubar_icon:
         from .statusitem import StatusItem
 
-        parts.append(StatusItem(cfg, config_path, on_restart))
+        parts.append(StatusItem(live, on_restart))
     return Host(parts) if parts else NullIndicator()

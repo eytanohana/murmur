@@ -2,7 +2,7 @@
 
 A part of the Host. The pure parts (menu rows, config writing, icon names) live in
 settings.py; this module only turns them into AppKit objects. Setting changes are
-written to the config file and take effect after a restart.
+written to the config file and applied at once (RESTART keys wait for a restart).
 """
 
 from __future__ import annotations
@@ -10,18 +10,15 @@ from __future__ import annotations
 import logging
 import subprocess
 from collections.abc import Callable
-from dataclasses import replace
-from pathlib import Path
 
-from .config import Config
 from .mainthread import main_thread
 from .settings import (
     ICON_DESCRIPTIONS,
+    LiveSettings,
     MenuItem,
     build_menu,
     ensure_config_file,
     icon_for,
-    write_setting,
 )
 
 log = logging.getLogger("murmur")
@@ -30,11 +27,9 @@ CHECKED = 1  # NSControlStateValueOn
 
 
 class StatusItem:
-    def __init__(self, cfg: Config, config_path: Path, on_restart: Callable[[], None]):
-        self.cfg = replace(cfg)  # shown values: the loaded config plus pending changes
-        self.config_path = config_path
+    def __init__(self, live: LiveSettings, on_restart: Callable[[], None]):
+        self.live = live
         self.on_restart = on_restart
-        self.changed = False
         self.item = None
         self.menu = None
         self.target = None
@@ -49,11 +44,19 @@ class StatusItem:
             def onItem_(self, sender):
                 self.handler(sender.tag())
 
+            def menuWillOpen_(self, menu):  # NSMenuDelegate: show current values
+                self.on_open()
+
         self.target = MenuTarget.alloc().init()
         self.target.handler = self._on_click
+        self.target.on_open = self._on_open
         bar = AppKit.NSStatusBar.systemStatusBar()
         self.item = bar.statusItemWithLength_(AppKit.NSVariableStatusItemLength)
         self._apply("idle")
+        self.menu = AppKit.NSMenu.alloc().initWithTitle_("murmur")
+        self.menu.setAutoenablesItems_(False)
+        self.menu.setDelegate_(self.target)
+        self.item.setMenu_(self.menu)
         self._rebuild_menu()
 
     def _apply(self, state: str) -> None:
@@ -73,15 +76,15 @@ class StatusItem:
         button.setImage_(image)
         button.setToolTip_(description)
 
-    def _rebuild_menu(self) -> None:
-        import AppKit
+    def _on_open(self) -> None:
+        """The menu is about to open: re-read a changed config file, then redraw."""
+        self.live.refresh()
+        self._rebuild_menu()
 
+    def _rebuild_menu(self) -> None:
         self._by_tag.clear()
-        menu = AppKit.NSMenu.alloc().initWithTitle_("murmur")
-        menu.setAutoenablesItems_(False)
-        self._fill(menu, build_menu(self.cfg, self.changed))
-        self.menu = menu
-        self.item.setMenu_(menu)
+        self.menu.removeAllItems()
+        self._fill(self.menu, build_menu(self.live.cfg, list(self.live.pending), self.live.error))
 
     def _fill(self, menu, items) -> None:
         import AppKit
@@ -115,10 +118,8 @@ class StatusItem:
         if it.kind == "setting":
             self._change(it.key, it.value)
         elif it.action == "open_config":
-            ensure_config_file(self.config_path)
-            subprocess.Popen(["open", "-t", str(self.config_path)])
-            self.changed = True  # the user may edit the file, so offer a restart
-            self._rebuild_menu()
+            ensure_config_file(self.live.path)
+            subprocess.Popen(["open", "-t", str(self.live.path)])
         elif it.action == "restart":
             self.on_restart()
         elif it.action == "quit":
@@ -128,13 +129,11 @@ class StatusItem:
 
     def _change(self, key: str, value: object) -> None:
         try:
-            write_setting(self.config_path, key, value)
+            self.live.set_value(key, value)
         except (ValueError, OSError) as exc:
-            log.error("Could not save %s = %r to %s: %s", key, value, self.config_path, exc)
+            log.error("Could not save %s = %r to %s: %s", key, value, self.live.path, exc)
             return
-        self.cfg = replace(self.cfg, **{key: value})
-        self.changed = True
-        log.info("Saved %s = %r; restart murmur to apply", key, value)
+        log.info("Saved %s = %r (applies on the next Option press)", key, value)
         self._rebuild_menu()
 
     # any thread
