@@ -19,7 +19,7 @@ def test_every_setting_has_text_a_known_group_and_a_known_kind():
     for s in SCHEMA:
         assert s.label and s.help and s.group in GROUPS, s.key
         assert s.kind in {"toggle", "choice", "number", "text", "sound", "model"}, s.key
-        assert "—" not in s.label + s.help, s.key  # no em dashes in UI text
+        assert chr(0x2014) not in s.label + s.help, s.key  # no em dashes in UI text
     assert {s.group for s in SCHEMA} == set(GROUPS)
 
 
