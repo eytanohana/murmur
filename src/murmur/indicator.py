@@ -1,16 +1,14 @@
-"""Visible recording indicator: a floating overlay pill.
+"""The floating overlay pill and the Indicator protocol Dictation talks to.
 
-AppKit must run on the main thread, so an indicator owns the main thread through
-run() while dictation work happens on other threads. set() is safe to call from
-any thread. stop() ends the process with status 0 (NSApp terminate).
+set() is safe to call from any thread; AppKit work is hopped onto the main thread.
 """
 
 from __future__ import annotations
 
-import signal
 import threading
-from collections.abc import Callable
 from typing import Protocol
+
+from .mainthread import main_thread
 
 PILL_W, PILL_H, MARGIN = 78.0, 26.0, 6.0
 
@@ -56,25 +54,21 @@ class NullIndicator:
         threading.Event().wait()
 
 
-def _main_thread(fn: Callable, *args) -> None:
-    from PyObjCTools import AppHelper
-
-    AppHelper.callAfter(fn, *args)
-
-
 class Overlay:
-    """Borderless, click-through, always-on-top pill that never takes focus."""
+    """Borderless, click-through, always-on-top pill that never takes focus.
+
+    A part of the Host: build() runs on the main thread before the run loop starts.
+    """
 
     def __init__(self, position: str = "top-center"):
         self.position = position
         self.panel = None
         self.dot = None
         self.label = None
-        self.app = None
 
     # main thread only
 
-    def _build(self) -> None:
+    def build(self) -> None:
         import AppKit
         from AppKit import NSColor, NSPanel
 
@@ -149,36 +143,4 @@ class Overlay:
 
     def set(self, state: str) -> None:
         if self.panel is not None:
-            _main_thread(self._apply, state)
-
-    def run(self) -> None:
-        import AppKit
-
-        self.app = AppKit.NSApplication.sharedApplication()
-        self.app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
-        self._build()
-        install_signal_handlers(self.stop)
-        # A repeating timer returns control to Python so signal handlers run.
-        AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, lambda _t: None)
-        self.app.run()
-
-    def stop(self) -> None:
-        if self.app is not None:
-            self.app.terminate_(None)
-
-
-def install_signal_handlers(stop: Callable[[], None]) -> None:
-    """SIGTERM (launchd) and SIGINT end the run loop with a clean exit status."""
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: stop())
-
-
-# Keyed by the valid indicator values in config.INDICATORS.
-FACTORIES: dict[str, Callable[[str], Indicator]] = {
-    "overlay": Overlay,
-    "none": lambda _position: NullIndicator(),
-}
-
-
-def make_indicator(kind: str, position: str = "top-center") -> Indicator:
-    return FACTORIES[kind](position)
+            main_thread(self._apply, state)

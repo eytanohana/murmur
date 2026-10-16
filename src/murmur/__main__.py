@@ -11,11 +11,12 @@ from pathlib import Path
 from .agent import main_agent
 from .app import Dictation
 from .config import CONFIG_PATH, Config, load_config
+from .host import make_indicator
 from .hotkey import HotkeyListener
-from .indicator import make_indicator
 from .inserter import Inserter
 from .permissions import check_permissions
 from .recorder import Recorder
+from .settings import restart_now
 from .transcriber import Transcriber
 
 log = logging.getLogger("murmur")
@@ -39,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_dictation(cfg: Config) -> None:
+def run_dictation(cfg: Config, config_path: Path) -> None:
     """Load the model, start the hotkey listener and hand the main thread to the indicator."""
     check_permissions()
     log.info("Loading model %s ...", cfg.model_repo)
@@ -48,7 +49,10 @@ def run_dictation(cfg: Config) -> None:
     transcriber.warm_up(cfg.sample_rate)
     log.info("Model loaded and warmed in %.1fs", time.monotonic() - t0)
 
-    indicator = make_indicator(cfg.indicator, cfg.indicator_position)
+    def restart() -> None:
+        restart_now(lambda: (listener.stop(), recorder.stop()))
+
+    indicator = make_indicator(cfg, config_path, restart)
     recorder = Recorder(cfg.sample_rate, cfg.max_record_s)
     inserter = Inserter(cfg.insert_mode, cfg.paste_restore_delay_ms)
     dictation = Dictation(cfg, recorder, transcriber, inserter, indicator)
@@ -82,9 +86,10 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(message)s",
         datefmt="%H:%M:%S",
     )
-    cfg = load_config(Path(args.config) if args.config else None)
+    config_path = Path(args.config) if args.config else CONFIG_PATH
+    cfg = load_config(config_path)
 
-    run_dictation(cfg)
+    run_dictation(cfg, config_path)
 
 
 if __name__ == "__main__":
