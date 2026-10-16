@@ -37,6 +37,24 @@ def test_post_text_sends_return_for_a_newline():
     assert [(c[0], c[3]) for c in calls] == [(inserter.KEYCODE_RETURN, None)] * 2
 
 
+def test_newline_inside_a_chunk_is_a_real_return():
+    calls, post = capture_posts()
+    with mock.patch.object(inserter, "_source"), post, mock.patch.object(inserter.time, "sleep"):
+        posted = inserter.post_text("ab\ncd\n\nef")
+    keys = [(c[0], c[3]) for c in calls if c[1]]  # key-down events
+    ret = (inserter.KEYCODE_RETURN, None)
+    assert keys == [(0, "ab"), ret, (0, "cd"), ret, ret, (0, "ef")]
+    assert posted == 12
+    assert all(flags == 0 for _, _, flags, _ in calls)
+
+
+def test_trailing_newline_sends_return_last():
+    calls, post = capture_posts()
+    with mock.patch.object(inserter, "_source"), post, mock.patch.object(inserter.time, "sleep"):
+        inserter.post_text("hi\n")
+    assert [(c[0], c[3]) for c in calls if c[1]] == [(0, "hi"), (inserter.KEYCODE_RETURN, None)]
+
+
 def test_paste_shortcut_carries_only_the_command_flag():
     calls, post = capture_posts()
     with mock.patch.object(inserter, "_source"), post:
