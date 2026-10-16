@@ -34,8 +34,6 @@ class Config:
     indicator: str = "overlay"
     # Overlay position: top-center, top-left, top-right, bottom-center, bottom-left, bottom-right
     indicator_position: str = "top-center"
-    # Deprecated alias for indicator = "menubar".
-    menubar: bool = False
     # Streaming: type stable words while Option is held. false = transcribe on release.
     stream: bool = True
     stream_interval: float = 0.5
@@ -66,8 +64,6 @@ def load_config(path: Path | None = None) -> Config:
         raise ValueError(f"Unknown config keys in {path}: {sorted(unknown)}")
     for key, value in data.items():
         setattr(cfg, key, value)
-    if cfg.menubar:
-        cfg.indicator = "menubar"
     check_choice("option_keys", cfg.option_keys, OPTION_KEYS)
     check_choice("indicator", cfg.indicator, INDICATORS)
     check_choice("indicator_position", cfg.indicator_position, POSITIONS)

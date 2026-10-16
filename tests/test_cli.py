@@ -8,7 +8,7 @@ from murmur import __main__ as cli
 @pytest.fixture
 def calls(monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli, "run_dictation", lambda cfg, kind: seen.update(run=(cfg, kind)))
+    monkeypatch.setattr(cli, "run_dictation", lambda cfg: seen.update(run=cfg))
     monkeypatch.setattr(cli, "main_agent", lambda command, args: seen.update(agent=(command, args)))
     return seen
 
@@ -21,13 +21,7 @@ def config_file(tmp_path, text=""):
 
 def test_default_run_uses_the_configured_indicator(calls, tmp_path):
     cli.main(["--config", config_file(tmp_path, 'indicator = "none"\n')])
-    cfg, kind = calls["run"]
-    assert kind == "none" and cfg.indicator == "none"
-
-
-def test_menubar_flag_overrides_the_config(calls, tmp_path):
-    cli.main(["--menubar", "--config", config_file(tmp_path, 'indicator = "none"\n')])
-    assert calls["run"][1] == "menubar"
+    assert calls["run"].indicator == "none"
 
 
 def test_agent_subcommands_exit_with_their_status(calls, monkeypatch):
@@ -53,3 +47,8 @@ def test_uninstall_agent_accepts_dry_run(calls):
 def test_invalid_config_is_reported_as_an_error(calls, tmp_path):
     with pytest.raises(ValueError, match="insert_mode"):
         cli.main(["--config", config_file(tmp_path, 'insert_mode = "x"\n')])
+
+
+def test_menubar_flag_is_gone(calls):
+    with pytest.raises(SystemExit):
+        cli.main(["--menubar"])

@@ -24,11 +24,6 @@ log = logging.getLogger("murmur")
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="murmur", description=__doc__)
     parser.add_argument(
-        "--menubar",
-        action="store_true",
-        help='alias for indicator = "menubar" (overrides the config)',
-    )
-    parser.add_argument(
         "--config", type=str, default=None, help=f"config path (default {CONFIG_PATH})"
     )
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -44,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_dictation(cfg: Config, kind: str) -> None:
+def run_dictation(cfg: Config) -> None:
     """Load the model, start the hotkey listener and hand the main thread to the indicator."""
     check_permissions()
     log.info("Loading model %s ...", cfg.model_repo)
@@ -53,7 +48,7 @@ def run_dictation(cfg: Config, kind: str) -> None:
     transcriber.warm_up(cfg.sample_rate)
     log.info("Model loaded and warmed in %.1fs", time.monotonic() - t0)
 
-    indicator = make_indicator(kind, cfg.indicator_position)
+    indicator = make_indicator(cfg.indicator, cfg.indicator_position)
     recorder = Recorder(cfg.sample_rate, cfg.max_record_s)
     inserter = Inserter(cfg.insert_mode, cfg.paste_restore_delay_ms)
     dictation = Dictation(cfg, recorder, transcriber, inserter, indicator)
@@ -65,7 +60,7 @@ def run_dictation(cfg: Config, kind: str) -> None:
         "Ready. Hold Option (%s) for %.1f s, speak, release. Indicator: %s. Ctrl+C to quit.",
         cfg.option_keys,
         cfg.min_hold_ms / 1000,
-        kind,
+        cfg.indicator,
     )
     try:
         # The indicator owns the main thread (AppKit); SIGTERM and SIGINT end it with status 0.
@@ -88,9 +83,8 @@ def main(argv: list[str] | None = None) -> None:
         datefmt="%H:%M:%S",
     )
     cfg = load_config(Path(args.config) if args.config else None)
-    kind = "menubar" if args.menubar else cfg.indicator
 
-    run_dictation(cfg, kind)
+    run_dictation(cfg)
 
 
 if __name__ == "__main__":

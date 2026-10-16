@@ -29,8 +29,9 @@ def test_file_values_override_defaults(tmp_path):
     assert cfg.stream_interval == 0.5  # untouched keys keep their defaults
 
 
-def test_menubar_true_is_an_alias_for_the_menubar_indicator(tmp_path):
-    assert load_config(write(tmp_path, "menubar = true\n")).indicator == "menubar"
+def test_the_old_menubar_key_is_now_an_unknown_key(tmp_path):
+    with pytest.raises(ValueError, match="menubar"):
+        load_config(write(tmp_path, "menubar = true\n"))
 
 
 def test_indicator_and_position_can_be_set(tmp_path):
