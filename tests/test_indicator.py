@@ -1,3 +1,4 @@
+from murmur import indicator
 from murmur.config import INDICATORS
 from murmur.indicator import FACTORIES, NullIndicator, Overlay, make_indicator, overlay_origin
 
@@ -25,8 +26,20 @@ def test_make_indicator_kinds():
     assert isinstance(make_indicator("none"), NullIndicator)
 
 
-def test_overlay_set_before_run_is_ignored():
-    Overlay().set("recording")  # no panel yet; must not raise or touch AppKit
+def test_overlay_set_before_run_schedules_nothing(monkeypatch):
+    scheduled = []
+    monkeypatch.setattr(indicator, "_main_thread", lambda fn, *args: scheduled.append((fn, args)))
+    Overlay().set("recording")  # no panel yet, so there is nothing to draw
+    assert scheduled == []
+
+
+def test_overlay_set_after_the_panel_exists_goes_through_the_main_thread(monkeypatch):
+    scheduled = []
+    monkeypatch.setattr(indicator, "_main_thread", lambda fn, *args: scheduled.append((fn, args)))
+    overlay = Overlay()
+    overlay.panel = object()  # stands in for the NSPanel that run() builds
+    overlay.set("recording")
+    assert scheduled == [(overlay._apply, ("recording",))]
 
 
 def test_every_valid_indicator_setting_has_a_factory():
