@@ -247,11 +247,10 @@ SCHEMA: tuple[Setting, ...] = (
     ),
     Setting(
         "menubar_icon",
-        "Menu bar icon",
-        "Show a menu bar icon. macOS hides it when the bar is full.",
+        "Show icon in the menu bar",
+        "If you hide it, open murmur from Spotlight to get back here.",
         "Feedback",
         TOGGLE,
-        live=False,
     ),
     # Model
     Setting(

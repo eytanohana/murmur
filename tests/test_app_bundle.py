@@ -118,19 +118,24 @@ def test_first_run_config_never_overwrites(tmp_path):
 
 def test_main_writes_the_first_run_config_only_for_the_frozen_app(tmp_path, monkeypatch):
     seen = []
-    monkeypatch.setattr(cli, "run_dictation", lambda cfg, path: seen.append(cfg))
+    monkeypatch.setattr(
+        cli, "run_dictation", lambda cfg, path, first_launch=False: seen.append((cfg, first_launch))
+    )
     monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr(cli.Path, "home", classmethod(lambda cls: tmp_path))
     cli.main([])  # a checkout run: no file is created
     assert not (tmp_path / "config.toml").exists()
     monkeypatch.setattr(cli, "is_frozen", lambda: True)
     cli.main([])
-    assert seen[-1].menubar_icon is True and (tmp_path / "config.toml").exists()
+    assert seen[-1][0].menubar_icon is True and (tmp_path / "config.toml").exists()
+    assert seen[-1][1] is True  # the very first launch: open Settings as a welcome
+    cli.main([])  # the file exists now, so this is no longer a first launch
+    assert seen[-1][1] is False
     assert (tmp_path / "Library" / "Logs").is_dir()  # the app logs to ~/Library/Logs
 
 
 def test_an_explicit_config_flag_is_never_replaced_by_the_first_run_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "run_dictation", lambda cfg, path: None)
+    monkeypatch.setattr(cli, "run_dictation", lambda cfg, path, first_launch=False: None)
     monkeypatch.setattr(cli, "is_frozen", lambda: True)
     monkeypatch.setattr(cli.Path, "home", classmethod(lambda cls: tmp_path))
     mine = tmp_path / "mine.toml"

@@ -200,6 +200,24 @@ def restart_now(stop_everything) -> None:  # pragma: no cover - replaces the pro
         os.execv(command[0], command)
 
 
+def icon_plan(enabled: bool, exists: bool, visible: bool | None) -> str:
+    """What the status item needs so it matches menubar_icon: create, show, remove or keep."""
+    if enabled:
+        if not exists:
+            return "create"
+        return "show" if visible is False else "keep"
+    return "remove" if exists else "keep"
+
+
+def hidden_by_user(configured: bool, visible: bool, removing: bool) -> bool:
+    """True when the user took the icon out of the menu bar (Cmd-drag) while it was on.
+
+    macOS then sets the item's `visible` to NO; the setting must follow. Our own removal
+    (turning the setting off) is not the user's doing.
+    """
+    return configured and not visible and not removing
+
+
 def file_mtime(path: Path) -> int | None:
     """Modification time in ns, or None when the file is missing or unreadable."""
     try:

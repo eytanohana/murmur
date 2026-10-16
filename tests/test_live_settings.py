@@ -46,12 +46,12 @@ def test_a_changed_file_applies_live_keys_and_flags_restart_keys(setup):
     edit(
         path,
         stat,
-        'sounds = true\nstream_interval = 0.8\nsample_rate = 16000\nindicator = "none"\nmenubar_icon = true\n',
+        'sounds = true\nstream_interval = 0.8\nsample_rate = 16000\nindicator = "none"\n',
     )
     assert live.refresh() is True
     assert (live.cfg.sounds, live.cfg.stream_interval) == (True, 0.8)
-    assert live.cfg.indicator == "overlay" and live.cfg.menubar_icon is False  # not applied live
-    assert live.pending == {"indicator": "none", "menubar_icon": True}
+    assert live.cfg.indicator == "overlay"  # not applied live
+    assert live.pending == {"indicator": "none"}
     assert live.error is None
 
 

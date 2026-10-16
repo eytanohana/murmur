@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import launchlogin, selftest
+from . import launchlogin, reopen, selftest
 from .agent import main_agent
 from .app import Dictation, State
 from .config import CONFIG_PATH, Config, load_config
@@ -60,11 +60,14 @@ def setup_logging(verbose: bool, log_file: Path | None) -> None:
     )
 
 
-def run_dictation(cfg: Config, config_path: Path, lock_path: Path | None = None) -> None:
+def run_dictation(
+    cfg: Config, config_path: Path, lock_path: Path | None = None, first_launch: bool = False
+) -> None:
     """Load the model, start the hotkey listener and hand the main thread to the indicator."""
     lock = InstanceLock(lock_path or config_path.parent / "murmur.lock")
     if not lock.acquire():
         log.warning("murmur is already running (pid %s); this copy exits", lock.holder_pid())
+        reopen.post_open_request(str(lock.path))  # the running copy opens its Settings window
         return
     selftest_wav = selftest.requested()
     if not selftest_wav:
@@ -96,6 +99,9 @@ def run_dictation(cfg: Config, config_path: Path, lock_path: Path | None = None)
     live.model_hook = switcher.request
     live.key_hooks["launch_at_login"] = launchlogin.apply
     indicator = make_indicator(live, restart, switcher)
+    indicator.open_scope = str(lock.path)
+    indicator.is_busy = lambda: dictation.state is not State.IDLE
+    indicator.show_settings_on_start = reopen.should_welcome(first_launch, bool(selftest_wav))
     recorder = Recorder(cfg)
     inserter = Inserter(cfg)
     dictation = Dictation(
@@ -144,11 +150,12 @@ def main(argv: list[str] | None = None) -> None:
     log_file = Path.home() / "Library" / "Logs" / "murmur.log" if frozen else None
     setup_logging(args.verbose, log_file)
     config_path = Path(args.config) if args.config else CONFIG_PATH
-    if frozen and not args.config and write_first_run_config(config_path):
+    first_launch = frozen and not args.config and write_first_run_config(config_path)
+    if first_launch:
         log.info("First launch: wrote %s with the menu bar icon on", config_path)
     cfg = load_config(config_path)
 
-    run_dictation(cfg, config_path)
+    run_dictation(cfg, config_path, first_launch=first_launch)
 
 
 if __name__ == "__main__":
