@@ -1,4 +1,4 @@
-"""Visible recording indicators: a floating overlay pill or a menu bar item.
+"""Visible recording indicator: a floating overlay pill.
 
 AppKit must run on the main thread, so an indicator owns the main thread through
 run() while dictation work happens on other threads. set() is safe to call from
@@ -13,8 +13,6 @@ from collections.abc import Callable
 from typing import Protocol
 
 PILL_W, PILL_H, MARGIN = 78.0, 26.0, 6.0
-
-MENUBAR_TITLES = {"idle": "mic", "recording": "REC", "transcribing": "..."}
 
 # state -> (label, dot color name); idle hides the overlay
 LOOKS = {"recording": ("REC", "red"), "transcribing": ("...", "orange")}
@@ -169,36 +167,6 @@ class Overlay:
             self.app.terminate_(None)
 
 
-class MenubarIndicator:
-    """Text item in the menu bar via rumps. Takes space in the bar even when idle."""
-
-    def __init__(self):
-        import rumps
-
-        self.rumps = rumps
-        self.item = rumps.App("murmur", title=MENUBAR_TITLES["idle"], quit_button="Quit")
-
-    def _apply(self, state: str) -> None:
-        self.item.title = MENUBAR_TITLES.get(state, MENUBAR_TITLES["idle"])
-
-    def set(self, state: str) -> None:
-        _main_thread(self._apply, state)
-
-    def run(self) -> None:
-        import AppKit
-
-        AppKit.NSApplication.sharedApplication().setActivationPolicy_(
-            AppKit.NSApplicationActivationPolicyAccessory
-        )
-        install_signal_handlers(self.stop)
-        self.timer = self.rumps.Timer(lambda _t: None, 0.5)  # lets signal handlers run
-        self.timer.start()
-        self.item.run()
-
-    def stop(self) -> None:
-        self.rumps.quit_application()
-
-
 def install_signal_handlers(stop: Callable[[], None]) -> None:
     """SIGTERM (launchd) and SIGINT end the run loop with a clean exit status."""
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -208,7 +176,6 @@ def install_signal_handlers(stop: Callable[[], None]) -> None:
 # Keyed by the valid indicator values in config.INDICATORS.
 FACTORIES: dict[str, Callable[[str], Indicator]] = {
     "overlay": Overlay,
-    "menubar": lambda _position: MenubarIndicator(),
     "none": lambda _position: NullIndicator(),
 }
 

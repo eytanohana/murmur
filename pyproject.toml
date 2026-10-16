@@ -20,6 +20,7 @@ dependencies = [
     "pyobjc-framework-cocoa>=12.2.2",
     "pyobjc-framework-quartz>=12.2.2",
     "sounddevice>=0.5.6",
+    "tomlkit>=0.15.2",
 ]
 
 [project.urls]
@@ -28,11 +29,6 @@ Repository = "https://github.com/eytanohana/murmur"
 
 [project.scripts]
 murmur = "murmur.__main__:main"
-
-[project.optional-dependencies]
-menubar = [
-    "rumps>=0.4.0",
-]
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]

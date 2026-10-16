@@ -47,8 +47,3 @@ def test_uninstall_agent_accepts_dry_run(calls):
 def test_invalid_config_is_reported_as_an_error(calls, tmp_path):
     with pytest.raises(ValueError, match="insert_mode"):
         cli.main(["--config", config_file(tmp_path, 'insert_mode = "x"\n')])
-
-
-def test_menubar_flag_is_gone(calls):
-    with pytest.raises(SystemExit):
-        cli.main(["--menubar"])

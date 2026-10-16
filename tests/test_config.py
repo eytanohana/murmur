@@ -1,6 +1,13 @@
 import pytest
 
-from murmur.config import INDICATORS, INSERT_MODES, OPTION_KEYS, POSITIONS, load_config
+from murmur.config import (
+    INDICATORS,
+    INSERT_MODES,
+    OPTION_KEYS,
+    POSITIONS,
+    load_config,
+    validate_setting,
+)
 
 
 def write(tmp_path, text):
@@ -29,9 +36,27 @@ def test_file_values_override_defaults(tmp_path):
     assert cfg.stream_interval == 0.5  # untouched keys keep their defaults
 
 
-def test_the_old_menubar_key_is_now_an_unknown_key(tmp_path):
-    with pytest.raises(ValueError, match="menubar"):
-        load_config(write(tmp_path, "menubar = true\n"))
+def test_menubar_is_no_longer_a_valid_indicator(tmp_path):
+    with pytest.raises(ValueError, match="indicator must be 'none' or 'overlay'"):
+        load_config(write(tmp_path, 'indicator = "menubar"\n'))
+
+
+def test_menubar_icon_defaults_off_and_is_a_bool(tmp_path):
+    assert load_config(tmp_path / "none.toml").menubar_icon is False
+    assert load_config(write(tmp_path, "menubar_icon = true\n")).menubar_icon is True
+    with pytest.raises(ValueError, match="menubar_icon must be bool, got str"):
+        load_config(write(tmp_path, 'menubar_icon = "yes"\n'))
+
+
+def test_validate_setting_accepts_good_and_rejects_bad_values():
+    validate_setting("stream", False)
+    validate_setting("indicator_position", "bottom-left")
+    with pytest.raises(ValueError, match="Unknown config key: nope"):
+        validate_setting("nope", 1)
+    with pytest.raises(ValueError, match="stream must be bool, got str"):
+        validate_setting("stream", "off")
+    with pytest.raises(ValueError, match="indicator_position must be"):
+        validate_setting("indicator_position", "middle")
 
 
 def test_indicator_and_position_can_be_set(tmp_path):

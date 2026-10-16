@@ -7,7 +7,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 OPTION_KEYS = ("left", "right", "both")
-INDICATORS = ("none", "menubar", "overlay")
+INDICATORS = ("none", "overlay")
 INSERT_MODES = ("paste", "type")
 POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left", "bottom-right")
 CONFIG_PATH = Path.home() / ".config" / "murmur" / "config.toml"
@@ -30,10 +30,12 @@ class Config:
     sounds: bool = False
     start_sound: str = "/System/Library/Sounds/Tink.aiff"
     stop_sound: str = "/System/Library/Sounds/Pop.aiff"
-    # Visible recording indicator: "overlay" (floating pill), "menubar" or "none".
+    # Recording indicator: "overlay" (floating pill) or "none".
     indicator: str = "overlay"
     # Overlay position: top-center, top-left, top-right, bottom-center, bottom-left, bottom-right
     indicator_position: str = "top-center"
+    # Menu bar icon (also works with indicator = "none"); off because the bar may be full.
+    menubar_icon: bool = False
     # Streaming: type stable words while Option is held. false = transcribe on release.
     stream: bool = True
     stream_interval: float = 0.5
@@ -67,6 +69,24 @@ def check_type(key: str, value: object, default: object) -> None:
         raise ValueError(f"{key} must be {expected.__name__}, got {type(value).__name__}")
 
 
+CHOICES = {
+    "option_keys": OPTION_KEYS,
+    "indicator": INDICATORS,
+    "indicator_position": POSITIONS,
+    "insert_mode": INSERT_MODES,
+}
+
+
+def validate_setting(key: str, value: object) -> None:
+    """Raise ValueError unless `key` is a config key and `value` is valid for it."""
+    defaults = Config()
+    if not hasattr(defaults, key):
+        raise ValueError(f"Unknown config key: {key}")
+    check_type(key, value, getattr(defaults, key))
+    if key in CHOICES:
+        check_choice(key, value, CHOICES[key])
+
+
 def load_config(path: Path | None = None) -> Config:
     """Load config from TOML. Missing file gives defaults; unknown keys raise."""
     path = path or CONFIG_PATH
@@ -80,10 +100,6 @@ def load_config(path: Path | None = None) -> Config:
     if unknown:
         raise ValueError(f"Unknown config keys in {path}: {sorted(unknown)}")
     for key, value in data.items():
-        check_type(key, value, getattr(cfg, key))
+        validate_setting(key, value)
         setattr(cfg, key, value)
-    check_choice("option_keys", cfg.option_keys, OPTION_KEYS)
-    check_choice("indicator", cfg.indicator, INDICATORS)
-    check_choice("indicator_position", cfg.indicator_position, POSITIONS)
-    check_choice("insert_mode", cfg.insert_mode, INSERT_MODES)
     return cfg
