@@ -87,6 +87,8 @@ src/murmur/
   mainthread.py   hop onto the AppKit main thread
   agent.py        LaunchAgent plist and launchctl commands (developer path)
   frozen.py       is_frozen and the app bundle path
+  uninstall.py    uninstall plan, path safety, operations (pure and injectable)
+  uninstallui.py  the confirmation alert and the controller that runs the plan
   instance.py     single-instance flock
   launchlogin.py  launch at login: SMAppService, LaunchAgent fallback
   selftest.py     MURMUR_SELFTEST_WAV hook for the frozen app
@@ -130,6 +132,10 @@ Release: `release.yml` builds the dmg in a `build-app` job that runs beside the 
 ## Staying reachable
 
 The app can always be reached again, even with no menu bar icon. `host.py` always runs the AppKit loop (also for `indicator = "none"` and the plain CLI) and installs an app delegate: `applicationShouldHandleReopen` (Spotlight, Finder and `open -a` on a running app) opens the Settings window and returns False so AppKit does nothing else. A second copy started by executing the binary cannot reach that event, so it posts a distributed notification (`com.eytanohana.murmur.open-settings`, object = the instance lock path, so a scratch copy with its own HOME never wakes the real one) and exits; the running copy opens Settings unless a dictation is running. The very first launch opens Settings once as a welcome (`reopen.should_welcome`). `StatusItem` follows `menubar_icon` at runtime (`settings.icon_plan`: create, show, remove or keep): it has an autosave name and `NSStatusItemBehaviorRemovalAllowed`, is made visible when the setting is on (the config is the truth, so a remembered removal is undone once), and observes `visible` with KVO; `hidden_by_user` turns a Cmd-drag removal into `menubar_icon = false` through `set_value`.
+
+## Uninstall
+
+"Uninstall murmur..." (status menu between Restart and Quit, and a small button at the bottom left of Settings) exists only in the frozen app. `uninstall.py` is pure: `build_plan(Context, Choices)` returns ordered steps (turn off launch at login, remove the developer LaunchAgent if installed, the chosen deletions, reset TCC, move the app to the Trash last) and `execute` runs them through an injectable `Operations` object, isolating each step's failure. Safety: a delete step may only target the exact paths the app uses (config folder, log file and the cache folders of the catalog's repos), checked by `safe_delete_target` in both the plan runner and `SystemOperations` (no resolving, no globbing, a symlink is removed itself and never followed); the Trash step only accepts the running bundle, ending in `.app`, whose Info.plist bundle id is `com.eytanohana.murmur`. `models.curated_cache` sizes folders without following symlinks and ignores every repo outside the catalog. `uninstallui.UninstallController` (main thread) refuses while a dictation runs or a model loads, asks via an NSAlert (Cancel default, Uninstall destructive, two checkboxes with sizes: settings and log on, models off because the Hugging Face cache is shared), stops the listener and recorder, runs the plan on a background thread, shows the path if the Trash step failed, and terminates cleanly. The developer agent is booted out before the app is trashed because its KeepAlive would bring the app back; restart is a no-op once uninstalling. The Trash step uses `NSWorkspace.recycleURLs`.
 
 ## Tooling
 
