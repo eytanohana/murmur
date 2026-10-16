@@ -167,7 +167,7 @@ class Streamer:
         new = audio[self.last_pass_samples :]
         return speech_seconds(new, self.sr, self.cfg.silence_rms) >= self.cfg.stream_min_speech_s
 
-    def _decode(
+    def _hear(
         self, audio: np.ndarray, label: str, drop_trailing: bool, timestamps: bool
     ) -> list[Word]:
         """Transcribe with silence trimmed off the edges; word times are in buffer time.
@@ -197,7 +197,7 @@ class Streamer:
         log.info("stream pass start: %.1fs audio", n / self.sr)
         # Timestamps are only needed on the pass that trims a long buffer.
         need_cut = n / self.sr > self.cfg.stream_trim_s
-        words = self._decode(audio, "streaming pass", drop_trailing=flush, timestamps=need_cut)
+        words = self._hear(audio, "streaming pass", drop_trailing=flush, timestamps=need_cut)
         took = self.clock() - t0
         self.pass_times.append(took)
         self.last_pass_samples = n
@@ -262,7 +262,7 @@ class Streamer:
             return []
         t0 = self.clock()
         log.info("final pass start: %.1fs audio", len(final_audio) / self.sr)
-        words = self._decode(final_audio, "final pass", drop_trailing=True, timestamps=False)
+        words = self._hear(final_audio, "final pass", drop_trailing=True, timestamps=False)
         log.info("final pass end: text=%r", " ".join(w.text for w in words))
         self.pass_times.append(self.clock() - t0)
         return [w.text for w in words]
