@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import launchlogin, reopen, selftest
+from . import launchlogin, permissions, reopen, selftest
 from .agent import main_agent
 from .app import Dictation, State
 from .config import CONFIG_PATH, Config, load_config
@@ -18,6 +18,7 @@ from .host import make_indicator
 from .hotkey import HotkeyListener
 from .inserter import Inserter
 from .instance import InstanceLock
+from .mainthread import main_thread
 from .models import prepare_offline
 from .modelswitch import MlxLoader, ModelSwitcher
 from .permissions import check_permissions
@@ -122,7 +123,22 @@ def run_dictation(
             daemon=True,
         ).start()
     else:
+        # The snapshot is taken right before the listener is created, so it describes the
+        # permissions the listener's event tap starts with. Only a later grant is a flip.
+        initial = permissions.probe()
         listener.start()
+        watcher = permissions.PermissionWatcher(
+            permissions.probe,
+            initial,
+            permissions.PermissionActions(
+                restart=lambda: main_thread(restart),
+                is_busy=lambda: dictation.state is not State.IDLE,
+                recreate_listener=listener.recreate,
+                recheck_microphone=permissions.recheck_microphone,
+                guard=permissions.RestartGuard(config_path.parent / "permission-restart"),
+            ),
+        )
+        watcher.start()  # nothing is polled when every permission was already granted
     if background_load:
         switcher.start_initial(cfg.model_repo)
     log.info(

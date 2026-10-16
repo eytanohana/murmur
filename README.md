@@ -13,7 +13,7 @@ murmur.app is a self-contained build for Apple Silicon Macs on macOS 15 or newer
    - Microphone: murmur records while you hold Option.
    - Accessibility: murmur types the transcript into the app you are using.
    - Input Monitoring: murmur sees the Option key press and release.
-   If you dismissed a prompt, turn murmur on in the matching list, then choose Restart murmur from the menu bar icon.
+   You do not need to restart anything. murmur checks the permissions that were missing every two seconds (a few cheap system calls, only while one is missing). When Accessibility or Input Monitoring is granted, it relaunches itself once so the hotkey starts working (it waits for a running dictation to finish first, and never relaunches twice within two minutes); when Microphone is granted, the next recording uses a fresh audio stream and no restart happens. If you dismissed a prompt, turn murmur on in the matching list and wait a moment.
 5. First launch: Settings opens once as a welcome (where you grant the permissions). With no config file the app writes `~/.config/murmur/config.toml` with `menubar_icon = true`, because without a terminal the menu bar icon is the only sign the app is running and its menu holds Settings and Quit. murmur then downloads the default model (about 1.6 GB, tiny to large-v3 are in the Model tab) in the background; the menu header reads "Downloading large-v3 turbo 37%..." and holding Option is ignored until it finishes. If the download fails (for example offline), the header says "Model load failed: see log", the error is in `~/Library/Logs/murmur.log`, and choosing the model again in the Model tab (or relaunching) retries. A model that is already cached loads in a few seconds with no download.
 6. Launch at login: turn on "Launch at login" in the menu or in Settings > General. murmur registers with macOS as a login item; if macOS refuses an ad-hoc signed app it writes a small LaunchAgent (`~/Library/LaunchAgents/com.eytanohana.murmur.login.plist`) that opens the app instead. If you installed the developer LaunchAgent below (`com.user.murmur`), the toggle is disabled until you run `murmur uninstall-agent`, so two copies never start.
 
@@ -58,13 +58,13 @@ The first run downloads the model (about 1.6 GB) into the Hugging Face cache. La
 
 ## Permissions
 
-Grant these to the terminal app that runs the command, in System Settings > Privacy & Security, then restart the terminal:
+Grant these to the terminal app that runs the command, in System Settings > Privacy & Security:
 
 - Accessibility: sends the synthetic Cmd+V.
 - Input Monitoring: global Option key listening.
 - Microphone: prompted on first recording.
 
-The app prints a warning at startup for Accessibility and Input Monitoring if they look missing.
+The app prints a warning at startup for Accessibility and Input Monitoring if they look missing, and watches them (see the app section above): when you grant one, murmur relaunches itself instead of asking you to. When you run from a checkout, the terminal's permissions are the ones that count, and the relaunch re-executes the same command; if the terminal itself needed a grant, restart the terminal once.
 
 ## Recording indicator
 
