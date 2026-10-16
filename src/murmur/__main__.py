@@ -9,13 +9,16 @@ import time
 from pathlib import Path
 
 from .agent import main_agent
-from .app import Dictation
+from .app import Dictation, State
 from .config import CONFIG_PATH, Config, load_config
+from .host import make_indicator
 from .hotkey import HotkeyListener
-from .indicator import make_indicator
 from .inserter import Inserter
+from .models import prepare_offline
+from .modelswitch import MlxLoader, ModelSwitcher
 from .permissions import check_permissions
 from .recorder import Recorder
+from .settings import LiveSettings, restart_now
 from .transcriber import Transcriber
 
 log = logging.getLogger("murmur")
@@ -39,22 +42,34 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_dictation(cfg: Config) -> None:
+def run_dictation(cfg: Config, config_path: Path) -> None:
     """Load the model, start the hotkey listener and hand the main thread to the indicator."""
     check_permissions()
+    prepare_offline(cfg.model_repo)  # offline only when the model is cached; else it downloads
     log.info("Loading model %s ...", cfg.model_repo)
-    transcriber = Transcriber(cfg.model_repo, cfg.language, cfg.silence_rms)
+    transcriber = Transcriber(cfg)
     t0 = time.monotonic()
     transcriber.warm_up(cfg.sample_rate)
     log.info("Model loaded and warmed in %.1fs", time.monotonic() - t0)
 
-    indicator = make_indicator(cfg.indicator, cfg.indicator_position)
-    recorder = Recorder(cfg.sample_rate, cfg.max_record_s)
-    inserter = Inserter(cfg.insert_mode, cfg.paste_restore_delay_ms)
-    dictation = Dictation(cfg, recorder, transcriber, inserter, indicator)
-    listener = HotkeyListener(
-        dictation.on_press, dictation.on_release, dictation.on_other_key, cfg.option_keys
+    def restart() -> None:
+        restart_now(lambda: (listener.stop(), recorder.stop()))
+
+    live = LiveSettings(config_path, cfg)
+    switcher = ModelSwitcher(
+        cfg,
+        MlxLoader(transcriber.warm_up),
+        transcriber.lock,
+        is_busy=lambda: dictation.state is not State.IDLE,
+        on_commit=live.commit_model,
+        on_failed=live.revert_model,
     )
+    live.model_hook = switcher.request
+    indicator = make_indicator(live, restart, switcher)
+    recorder = Recorder(cfg)
+    inserter = Inserter(cfg)
+    dictation = Dictation(cfg, recorder, transcriber, inserter, indicator, refresh=live.refresh)
+    listener = HotkeyListener(dictation.on_press, dictation.on_release, dictation.on_other_key, cfg)
     listener.start()
     log.info(
         "Ready. Hold Option (%s) for %.1f s, speak, release. Indicator: %s. Ctrl+C to quit.",
@@ -82,9 +97,10 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(message)s",
         datefmt="%H:%M:%S",
     )
-    cfg = load_config(Path(args.config) if args.config else None)
+    config_path = Path(args.config) if args.config else CONFIG_PATH
+    cfg = load_config(config_path)
 
-    run_dictation(cfg)
+    run_dictation(cfg, config_path)
 
 
 if __name__ == "__main__":

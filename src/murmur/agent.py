@@ -40,8 +40,9 @@ def build_plist(python: Path, project: Path, home: Path) -> dict:
     """LaunchAgent definition. Runs the venv python directly, not `uv run`.
 
     KeepAlive with SuccessfulExit false restarts the job only after a non-zero
-    exit (a crash); a clean exit stays stopped. HF_HUB_OFFLINE keeps login
-    startup from depending on the network once the model is cached.
+    exit (a crash); a clean exit stays stopped. The plist no longer sets
+    HF_HUB_OFFLINE: the app goes offline at startup only when the configured model is
+    cached, so login works without a network and a model switch can still download.
     """
     log = str(log_path(home))
     return {
@@ -57,7 +58,6 @@ def build_plist(python: Path, project: Path, home: Path) -> dict:
         "EnvironmentVariables": {
             "PATH": f"{python.parent}:{DEFAULT_PATH}",
             "PYTHONUNBUFFERED": "1",
-            "HF_HUB_OFFLINE": "1",
         },
     }
 

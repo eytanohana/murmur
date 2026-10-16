@@ -1,20 +1,17 @@
-"""Visible recording indicators: a floating overlay pill or a menu bar item.
+"""The floating overlay pill and the Indicator protocol Dictation talks to.
 
-AppKit must run on the main thread, so an indicator owns the main thread through
-run() while dictation work happens on other threads. set() is safe to call from
-any thread. stop() ends the process with status 0 (NSApp terminate).
+set() is safe to call from any thread; AppKit work is hopped onto the main thread.
 """
 
 from __future__ import annotations
 
-import signal
 import threading
-from collections.abc import Callable
 from typing import Protocol
 
-PILL_W, PILL_H, MARGIN = 78.0, 26.0, 6.0
+from .config import Config
+from .mainthread import main_thread
 
-MENUBAR_TITLES = {"idle": "mic", "recording": "REC", "transcribing": "..."}
+PILL_W, PILL_H, MARGIN = 78.0, 26.0, 6.0
 
 # state -> (label, dot color name); idle hides the overlay
 LOOKS = {"recording": ("REC", "red"), "transcribing": ("...", "orange")}
@@ -40,6 +37,18 @@ def overlay_origin(frame, visible, size, position: str, margin: float = MARGIN):
     return x, y
 
 
+def menu_bar_screen_rects():
+    """(frame, visible) of the screen that has the menu bar, as (x, y, w, h) tuples."""
+    import AppKit
+
+    screen = AppKit.NSScreen.screens()[0]
+    f, v = screen.frame(), screen.visibleFrame()
+    return (
+        (f.origin.x, f.origin.y, f.size.width, f.size.height),
+        (v.origin.x, v.origin.y, v.size.width, v.size.height),
+    )
+
+
 class Indicator(Protocol):
     """What Dictation and main() need from an indicator."""
 
@@ -58,25 +67,21 @@ class NullIndicator:
         threading.Event().wait()
 
 
-def _main_thread(fn: Callable, *args) -> None:
-    from PyObjCTools import AppHelper
-
-    AppHelper.callAfter(fn, *args)
-
-
 class Overlay:
-    """Borderless, click-through, always-on-top pill that never takes focus."""
+    """Borderless, click-through, always-on-top pill that never takes focus.
 
-    def __init__(self, position: str = "top-center"):
-        self.position = position
+    A part of the Host: build() runs on the main thread before the run loop starts.
+    """
+
+    def __init__(self, cfg: Config | None = None):
+        self.cfg = cfg or Config()  # indicator_position is read each time the pill is shown
         self.panel = None
         self.dot = None
         self.label = None
-        self.app = None
 
     # main thread only
 
-    def _build(self) -> None:
+    def build(self) -> None:
         import AppKit
         from AppKit import NSColor, NSPanel
 
@@ -136,14 +141,8 @@ class Overlay:
             AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(*rgb, 1.0).CGColor()
         )
         self.label.setStringValue_(text)
-        screen = AppKit.NSScreen.screens()[0]  # the screen that has the menu bar
-        f, v = screen.frame(), screen.visibleFrame()
-        x, y = overlay_origin(
-            (f.origin.x, f.origin.y, f.size.width, f.size.height),
-            (v.origin.x, v.origin.y, v.size.width, v.size.height),
-            (PILL_W, PILL_H),
-            self.position,
-        )
+        frame, visible = menu_bar_screen_rects()
+        x, y = overlay_origin(frame, visible, (PILL_W, PILL_H), self.cfg.indicator_position)
         self.panel.setFrameOrigin_(AppKit.NSMakePoint(x, y))
         self.panel.orderFrontRegardless()  # never makeKey: focus stays in the typing app
 
@@ -151,67 +150,4 @@ class Overlay:
 
     def set(self, state: str) -> None:
         if self.panel is not None:
-            _main_thread(self._apply, state)
-
-    def run(self) -> None:
-        import AppKit
-
-        self.app = AppKit.NSApplication.sharedApplication()
-        self.app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
-        self._build()
-        install_signal_handlers(self.stop)
-        # A repeating timer returns control to Python so signal handlers run.
-        AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(0.5, True, lambda _t: None)
-        self.app.run()
-
-    def stop(self) -> None:
-        if self.app is not None:
-            self.app.terminate_(None)
-
-
-class MenubarIndicator:
-    """Text item in the menu bar via rumps. Takes space in the bar even when idle."""
-
-    def __init__(self):
-        import rumps
-
-        self.rumps = rumps
-        self.item = rumps.App("murmur", title=MENUBAR_TITLES["idle"], quit_button="Quit")
-
-    def _apply(self, state: str) -> None:
-        self.item.title = MENUBAR_TITLES.get(state, MENUBAR_TITLES["idle"])
-
-    def set(self, state: str) -> None:
-        _main_thread(self._apply, state)
-
-    def run(self) -> None:
-        import AppKit
-
-        AppKit.NSApplication.sharedApplication().setActivationPolicy_(
-            AppKit.NSApplicationActivationPolicyAccessory
-        )
-        install_signal_handlers(self.stop)
-        self.timer = self.rumps.Timer(lambda _t: None, 0.5)  # lets signal handlers run
-        self.timer.start()
-        self.item.run()
-
-    def stop(self) -> None:
-        self.rumps.quit_application()
-
-
-def install_signal_handlers(stop: Callable[[], None]) -> None:
-    """SIGTERM (launchd) and SIGINT end the run loop with a clean exit status."""
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: stop())
-
-
-# Keyed by the valid indicator values in config.INDICATORS.
-FACTORIES: dict[str, Callable[[str], Indicator]] = {
-    "overlay": Overlay,
-    "menubar": lambda _position: MenubarIndicator(),
-    "none": lambda _position: NullIndicator(),
-}
-
-
-def make_indicator(kind: str, position: str = "top-center") -> Indicator:
-    return FACTORIES[kind](position)
+            main_thread(self._apply, state)

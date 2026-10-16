@@ -28,10 +28,59 @@ The app prints a warning at startup for Accessibility and Input Monitoring if th
 The macOS mic indicator does not appear for a LaunchAgent, so the app draws its own. Set `indicator` in the config (default `"overlay"`):
 
 - `overlay`: a small dark pill with a red dot and "REC" at the top center of the main screen, just below the menu bar and notch. It appears when the 1 s hold threshold passes (not at key down), shows an orange dot and "..." while the final pass runs, then hides. It is a borderless non-activating panel at status window level on all Spaces; it ignores the mouse and never takes focus, so typing continues in the app you are using. No sounds. `indicator_position` moves it: `top-center`, `top-left`, `top-right`, `bottom-center`, `bottom-left`, `bottom-right`.
-- `menubar`: a text item ("mic", "REC", "...") in the menu bar via rumps (`uv sync --extra menubar`). It permanently uses menu bar space, and macOS hides status items that do not fit next to the notch. On the development Mac the item was created but macOS did not put it on screen because the bar was full, which is why the overlay is the default.
-- `none`: no indicator.
+- `none`: no pill. Combine it with `menubar_icon = true` for a menu bar icon only.
 
-AppKit runs on the main thread and dictation on other threads. The app uses the accessory activation policy, so there is no Dock icon. On startup the menu bar variant activates once (a rumps default). SIGTERM and Ctrl+C end the app with exit status 0 under both indicators. After changing `indicator` under the agent, run `launchctl kickstart -k gui/$(id -u)/com.user.murmur`.
+AppKit runs on the main thread and dictation on other threads. The app uses the accessory activation policy, so there is no Dock icon. SIGTERM and Ctrl+C end the app with exit status 0 with or without the icon. After changing `indicator` under the agent, restart as described in the menu bar icon section.
+
+## Menu bar icon
+
+Experimental and off by default, because the menu bar may be full. Set `menubar_icon = true` in the config. It adds a native status item that only says murmur is running: a microphone symbol (`mic`), which becomes `mic.fill` while recording, from the same moment the pill appears. It is a template image, so it follows light and dark menu bars. It works with `indicator = "none"` for an icon without the pill. The icon stays `mic` during the final pass; the pill shows "...".
+
+On a Mac with a notch, macOS hides status items that do not fit. On the development Mac the bar was full, the item was created but macOS did not draw it, and it only appeared once there was room. If the icon is missing, remove or Cmd-drag another icon to make space.
+
+Click the icon for the menu:
+
+- A status line ("murmur is running", "Loading <model> 42%...", "Model load failed: see log" or "Config error: see log") and the current model, as disabled lines.
+- Streaming and Sounds toggles with checkmarks.
+- Model: a submenu with a checkmark on the current model; each entry shows its size, language scope and whether it is already downloaded.
+- Settings...: opens the settings window (below).
+- Open config file: creates `~/.config/murmur/config.toml` (or the `--config` path) with a short commented header when it is missing, then opens it with `open -t`.
+- "Restart murmur", which becomes "Restart to apply changes (keys)" and is checked when a restart-only key was changed in the file.
+- Quit murmur.
+
+Changing a setting validates the value and writes just that key to the config file with tomlkit, so your comments and other keys stay. The change applies on the next Option press, no restart needed.
+
+**Restart.** Under the LaunchAgent (detected by `XPC_SERVICE_NAME` equal to the job label) it runs `launchctl kickstart -k gui/<uid>/com.user.murmur`. In a terminal it stops the hotkey listener and the recorder, then re-executes the same interpreter with the original arguments (`python -m murmur ...` or the `murmur` script) in the same process, so two copies never run. Limits: the re-exec is only for runs outside launchd; a failure to exec is not retried and shows up in the log. A restart reloads the model, so the app is deaf for the few seconds that takes. Both paths were exercised with a status item in a scratch run (the process kept its PID across the re-exec), but not with a real Option key press.
+
+**Quit** exits with status 0. The LaunchAgent restarts only after a crash, so a quit stays quit until you start it again: `launchctl kickstart gui/$(id -u)/com.user.murmur` (or log in again).
+
+## Settings window
+
+Settings... in the menu bar menu opens one window, "murmur Settings", with a tab per group: General (hotkey, hold time, longest recording, silence threshold, sample rate), Streaming, Output (insert mode, clipboard delay), Feedback (sounds with a picker and Play button for each system sound, the pill, its position, the menu bar icon) and Model. Every setting has a label, a one-line help text, and a control that fits it: a switch, a slider with the live value and unit, a stepper, a popup or a text field. The ranges come from one schema, for example hold time 0 to 3000 ms and pass interval 0.2 to 3.0 s, and the config file is checked against the same ranges.
+
+A change is validated, written to the config file with tomlkit and applied at once, like a menu click. Settings that cannot apply live (sample rate, the pill on or off, the menu bar icon) show an orange "Restart needed" badge with a Restart now button. A Reset button appears next to any value that differs from its default, and Reset all (with a confirmation) restores every default. Insert mode and the clipboard delay are greyed out while streaming is on, the sound pickers while Sounds is off and Language while an English-only model is loaded, each with the reason under the control. The window re-reads the config file when it regains focus, and closing it hands focus back to the app you were typing in.
+
+## Models
+
+The Model tab and the Model submenu list models that were checked against the Hugging Face API for existence and size and loaded with mlx_whisper:
+
+| Model | Size | Languages | Notes |
+| --- | --- | --- | --- |
+| tiny.en | 74 MB | English | fastest, least accurate |
+| base.en | 144 MB | English | |
+| small.en | 481 MB | English | |
+| medium.en | 1525 MB | English | |
+| large-v3 turbo | 1614 MB | multilingual | default |
+| large-v3 | 3084 MB | multilingual | slowest, most accurate |
+| distil large-v3 | 1509 MB | English | output has no punctuation or capitals |
+
+The 4-bit and 8-bit turbo conversions are not listed: they ship `model.safetensors`, which the installed mlx_whisper cannot load. You can still put any other `mlx-community` Whisper repo in `model_repo`; it works if mlx_whisper can load it, and the dropdown shows it as "(custom)".
+
+**Switching without a restart.** Picking a model downloads it if needed (with progress in the Model tab and "Loading ..." in the menu header) and loads it on a background thread while the current model keeps serving. The swap happens under the transcriber lock and only between dictations; if you are dictating when the load finishes, it waits for the release. The config file changes only after the load succeeded. If anything fails the old model stays, the error shows in the Model tab and the log, and a hand-edited `model_repo` in the file is put back. The old weights are freed and the MLX cache cleared. Switching to an English-only model sets `language = "en"`; the Language control is disabled for those models.
+
+In a scratch run with the real models (temp Hugging Face cache, `HF_HUB_OFFLINE=1` exported to imitate an old plist), switching from turbo to tiny.en took 2.1 s including the 74 MB download, small.en 7.9 s including 481 MB, turbo again 1.5 s from cache and base.en 3.3 s. Resident memory went from 2086 MB (turbo) to 565 MB (tiny.en) after the swap, and the test clip transcribed correctly after every swap.
+
+**Offline behavior.** At startup murmur goes offline only when the configured model is already in the Hugging Face cache, so logging in without a network still works. If the model is not cached it downloads it. The LaunchAgent plist no longer sets `HF_HUB_OFFLINE`. If you installed the agent with an older version, its plist still exports `HF_HUB_OFFLINE=1`; that keeps working, because startup and model switches turn offline mode off before they download. Run `murmur install-agent` again whenever you like to write the new plist.
 
 ## Run at login
 
@@ -45,11 +94,11 @@ uv run murmur agent-status
 uv run murmur uninstall-agent
 ```
 
-`install-agent` writes `~/Library/LaunchAgents/com.user.murmur.plist` and runs `launchctl bootstrap gui/$UID`. The agent runs `.venv/bin/python -m murmur` directly (not `uv run`) from the project folder, with `RunAtLoad`, `ProcessType Interactive`, and `KeepAlive` set to restart only after a crash (non-zero exit); a clean exit or Ctrl+C-style stop stays stopped. `HF_HUB_OFFLINE=1` is set so login does not need the network; run the app once in a terminal after changing `model_repo` so the new model is downloaded. `--no-start` writes the plist without running launchctl.
+`install-agent` writes `~/Library/LaunchAgents/com.user.murmur.plist` and runs `launchctl bootstrap gui/$UID`. The agent runs `.venv/bin/python -m murmur` directly (not `uv run`) from the project folder, with `RunAtLoad`, `ProcessType Interactive`, and `KeepAlive` set to restart only after a crash (non-zero exit); a clean exit or Ctrl+C-style stop stays stopped. The plist does not set `HF_HUB_OFFLINE`; see Offline behavior below. `--no-start` writes the plist without running launchctl.
 
 **Logs:** `tail -f ~/Library/Logs/murmur.log` (stdout and stderr, including permission warnings).
 
-**After editing the config:** `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
+**After editing the config:** nothing for most keys, they apply on the next Option press. After changing `sample_rate`, `indicator` or `menubar_icon`: `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
 
 **Permissions:** with no terminal attached, macOS attributes the permissions to the Python binary itself, not to your terminal. `install-agent` prints its path after installing, with symlinks resolved (for example `~/.local/share/uv/python/cpython-3.12.x-macos-aarch64-none/bin/python3.12`). In System Settings > Privacy & Security add that binary to Accessibility, Input Monitoring and Microphone (click +, press Cmd+Shift+G, paste the path), then run the kickstart command above. At startup the app requests the prompts for itself and warns in the log, naming the binary, when Accessibility or Input Monitoring is missing or the microphone returns only silence.
 
@@ -81,17 +130,19 @@ Streaming is on by default. While Option is held, the buffer is re-transcribed a
 
 ## Config
 
+Changes to the file apply on the next Option press, no restart needed. murmur checks the file's modification time once when you press Option (and when the menu bar menu opens) and only re-reads it when that changed. A key press picks up the new values for that dictation and they stay fixed until it ends. Only `sample_rate`, `indicator` and `menubar_icon` need a restart (`model_repo` loads the new model in the background and `language` applies at once); murmur logs them as pending and the menu names them. If the file is invalid, murmur keeps the previous settings, logs one warning per change and shows "Config error: see log" in the menu.
+
 Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown keys and values of the wrong type (for example `min_hold_ms = "1000"`) stop the app at startup with an error naming the key.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `model_repo` | `mlx-community/whisper-large-v3-turbo` | Hugging Face MLX Whisper repo |
-| `language` | `"en"` | Forced language |
+| `model_repo` | `mlx-community/whisper-large-v3-turbo` | Hugging Face MLX Whisper repo; a change loads the new model in the background |
+| `language` | `"en"` | Forced language; English-only models always use en |
 | `min_hold_ms` | `1000` | Minimum hold to count |
 | `max_record_s` | `120` | Maximum recording length |
 | `silence_rms` | `0.005` | RMS below this counts as silence |
 | `option_keys` | `"both"` | `"left"`, `"right"` or `"both"` |
-| `insert_mode` | `"paste"` | `"paste"` or `"type"`; used only when `stream = false` |
+| `insert_mode` | `"paste"` | `"paste"` or `"type"`. With `stream = true` every chunk is typed with key events and this setting does nothing; with `stream = false` the whole clip is inserted on release, either by clipboard and Cmd+V (the previous plain-text clipboard is restored) or by typing key events with no clipboard. |
 | `paste_restore_delay_ms` | `150` | Wait before restoring the clipboard |
 | `sounds` | `false` | Start sound (when the hold threshold passes) and stop sound (on release); off because the macOS mic indicator shows recording |
 | `start_sound`, `stop_sound` | Tink, Pop | Paths under `/System/Library/Sounds` |
@@ -101,7 +152,8 @@ Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown
 | `stream_trim_s` | `20` | Buffer length that triggers a trim at the last committed word |
 | `stream_min_speech_s` | `0.3` | New speech needed to run a pass |
 | `stream_flush_silence_s` | `0.7` | Pause that flushes held-back words and the unsettled tail while Option is held |
-| `indicator` | `"overlay"` | `"overlay"`, `"menubar"` or `"none"` |
+| `indicator` | `"overlay"` | `"overlay"` or `"none"` |
+| `menubar_icon` | `false` | Show the menu bar icon and settings menu |
 | `indicator_position` | `"top-center"` | Overlay position |
 
 ## Pause flush
@@ -139,13 +191,7 @@ Text is typed with Quartz keyboard events (flags cleared, 20 UTF-16 units per ev
 
 ## Swapping the model
 
-Set `model_repo` in the config file, for example:
-
-```
-model_repo = "mlx-community/whisper-medium.en-mlx"
-```
-
-Any `mlx-community` Whisper repo works. `language` is passed through, so set it to match multilingual models or leave `"en"` for English.
+Use the Model submenu or the Model tab, or set `model_repo` in the config file; murmur loads it in the background, see Models above. A repo outside the list works if mlx_whisper can load it. Set `language` to match multilingual models or leave `"en"` for English.
 
 ## Development
 
@@ -160,4 +206,4 @@ murmur is released under the MIT License (see `LICENSE`).
 
 It runs [OpenAI Whisper](https://github.com/openai/whisper) models (code and weights are MIT licensed) through [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (MIT), using the `mlx-community/whisper-large-v3-turbo` conversion from Hugging Face. The model is downloaded at first run and is not bundled with this package.
 
-Other dependencies keep their own licenses: pynput (LGPL-3.0), sounddevice (MIT), numpy (BSD), PyObjC (MIT) and rumps (BSD, optional).
+Other dependencies keep their own licenses: pynput (LGPL-3.0), sounddevice (MIT), numpy (BSD), PyObjC (MIT) and tomlkit (MIT).

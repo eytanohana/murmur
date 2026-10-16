@@ -18,6 +18,8 @@ from collections.abc import Callable
 
 from pynput import keyboard
 
+from .config import Config
+
 log = logging.getLogger("murmur")
 
 LEFT = keyboard.Key.alt_l
@@ -39,19 +41,19 @@ class HotkeyListener:
         on_press: Callable[[], None],
         on_release: Callable[[], None],
         on_other_key: Callable[[], None],
-        option_keys: str = "both",
+        cfg: Config | None = None,
     ):
         self._on_press = on_press
         self._on_release = on_release
         self._on_other_key = on_other_key
-        self._keys = OPTION_KEY_SETS[option_keys]
+        self.cfg = cfg or Config()
         self._held: set = set()
         self._dispatch: Callable[[Callable[[], None]], None] = lambda fn: fn()
         self._queue: queue.Queue = queue.Queue()
         self._listener: keyboard.Listener | None = None
 
     def handle_press(self, key, injected: bool = False) -> None:
-        if key in self._keys:
+        if key in OPTION_KEY_SETS[self.cfg.option_keys]:
             was_empty = not self._held
             self._held.add(key)
             if was_empty:
@@ -62,7 +64,7 @@ class HotkeyListener:
             self._dispatch(self._on_other_key)
 
     def handle_release(self, key, injected: bool = False) -> None:
-        if key in self._keys and key in self._held:
+        if key in self._held:  # whichever option_keys set it was pressed under
             self._held.discard(key)
             if not self._held:
                 log.info("Option up")

@@ -1,6 +1,7 @@
 from unittest import mock
 
 from murmur import inserter
+from murmur.config import Config
 
 
 def test_utf16_chunks_respect_the_limit_and_surrogate_pairs():
@@ -94,7 +95,7 @@ def test_type_text_warns_once_without_accessibility(caplog):
 def test_empty_text_posts_nothing():
     with mock.patch.object(inserter, "post_text") as post:
         inserter.Inserter().type_text("")
-        inserter.Inserter("type").insert("")
+        inserter.Inserter(Config(insert_mode="type")).insert("")
     post.assert_not_called()
 
 
@@ -107,10 +108,10 @@ def test_insert_dispatches_on_mode():
         mock.patch.object(inserter, "set_clipboard"),
         mock.patch.object(inserter.time, "sleep"),
     ):
-        inserter.Inserter("type").insert("hi")
+        inserter.Inserter(Config(insert_mode="type")).insert("hi")
         typed.assert_called_once_with("hi")
         pasted.assert_not_called()
-        inserter.Inserter("paste").insert("yo")
+        inserter.Inserter(Config(insert_mode="paste")).insert("yo")
         pasted.assert_called_once()
         typed.assert_called_once()  # paste mode does not type
 
@@ -126,5 +127,5 @@ def test_paste_sets_the_transcript_then_restores_the_previous_clipboard():
         mock.patch.object(inserter, "post_cmd_v", side_effect=lambda: order.append(("paste",))),
         mock.patch.object(inserter.time, "sleep"),
     ):
-        inserter.Inserter("paste").insert("héllo")
+        inserter.Inserter(Config(insert_mode="paste")).insert("héllo")
     assert order == [("set", "héllo".encode()), ("paste",), ("set", b"previous")]

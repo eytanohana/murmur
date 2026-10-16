@@ -1,6 +1,7 @@
 import numpy as np
 
 from murmur.audio import rms
+from murmur.config import Config
 from murmur.transcriber import Transcriber
 
 
@@ -14,7 +15,7 @@ def test_silent_clip_skips_model():
         def _decode(self, *args, **kwargs):
             raise AssertionError("model must not run on silence")
 
-    assert T("repo", silence_rms=0.005).transcribe(np.zeros(16000, dtype=np.float32)) == ""
+    assert T(Config(silence_rms=0.005)).transcribe(np.zeros(16000, dtype=np.float32)) == ""
 
 
 def test_silent_clip_gives_no_words_and_skips_the_model():
@@ -22,7 +23,7 @@ def test_silent_clip_gives_no_words_and_skips_the_model():
         def _decode(self, *args, **kwargs):
             raise AssertionError("model must not run on silence")
 
-    assert T("repo").transcribe_words(np.zeros(16000, dtype=np.float32)) == []
+    assert T().transcribe_words(np.zeros(16000, dtype=np.float32)) == []
 
 
 def test_loud_clip_runs_model_and_cleans():
@@ -30,12 +31,12 @@ def test_loud_clip_runs_model_and_cleans():
         def _decode(self, *args, **kwargs):
             return {"text": "  hello "}
 
-    assert T("repo").transcribe(np.full(16000, 0.1, dtype=np.float32)) == "hello"
+    assert T().transcribe(np.full(16000, 0.1, dtype=np.float32)) == "hello"
 
 
 class Fake(Transcriber):
     def __init__(self, result):
-        super().__init__("repo")
+        super().__init__()
         self.result = result
         self.word_timestamps = None
 

@@ -18,6 +18,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -62,8 +63,10 @@ class Dictation:
         run_async: bool = True,
         sound: Callable[[str], None] = play_sound,
         schedule: Callable[[float, Callable[[], None]], None] = start_timer,
+        refresh: Callable[[], object] = lambda: None,
     ):
-        self.cfg = cfg
+        self.cfg = cfg  # live: collaborators and menu edits see changes
+        self.active = replace(cfg)  # the values of the current dictation, fixed at key down
         self.recorder = recorder
         self.transcriber = transcriber
         self.inserter = inserter
@@ -72,6 +75,7 @@ class Dictation:
         self.run_async = run_async
         self.sound = sound
         self.schedule = schedule
+        self.refresh = refresh  # re-reads the config file when it changed; called at key down
         self.state = State.IDLE
         self._lock = threading.Lock()
         self._started_at = 0.0
@@ -95,6 +99,10 @@ class Dictation:
             if self.state is not State.IDLE:
                 return
             try:
+                self.refresh()
+            except Exception:  # a config problem must never block dictation
+                log.exception("Config refresh failed")
+            try:
                 self.recorder.start()
             except Exception as exc:  # noqa: BLE001  any recorder failure leaves us idle
                 log.error(
@@ -103,25 +111,26 @@ class Dictation:
                     exc,
                 )
                 return
+            self.active = replace(self.cfg)  # a config change waits for the next dictation
             self._started_at = self.clock()
             self._set_state(State.RECORDING)
-            if self.cfg.stream:
+            if self.active.stream:
                 self.streamer = Streamer(
-                    self.cfg, self.recorder, self.transcriber, self.inserter, self.clock
+                    self.active, self.recorder, self.transcriber, self.inserter, self.clock
                 )
                 self.streamer.start()
             self._press_id += 1
             # Marks that the hold threshold passed (indicator and optional sound).
             press_id = self._press_id
-            self.schedule(self.cfg.min_hold_ms / 1000, lambda: self._threshold_passed(press_id))
+            self.schedule(self.active.min_hold_ms / 1000, lambda: self._threshold_passed(press_id))
 
     def _threshold_passed(self, press_id: int) -> None:
         with self._lock:
             if self.state is not State.RECORDING or press_id != self._press_id:
                 return
         self.indicator.set("recording")
-        if self.cfg.sounds:
-            self.sound(self.cfg.start_sound)
+        if self.active.sounds:
+            self.sound(self.active.start_sound)
 
     def _discard_streamer(self) -> None:
         if self.streamer:
@@ -143,14 +152,14 @@ class Dictation:
                 return
             held = self.clock() - self._started_at
             audio = self.recorder.stop()
-            if held * 1000 < self.cfg.min_hold_ms:
+            if held * 1000 < self.active.min_hold_ms:
                 self._discard_streamer()
                 self._set_state(State.IDLE)
                 log.debug("Hold of %.0f ms below minimum; ignored", held * 1000)
                 return
             self._set_state(State.TRANSCRIBING)
-        if self.cfg.sounds:
-            self.sound(self.cfg.stop_sound)
+        if self.active.sounds:
+            self.sound(self.active.stop_sound)
         streamer, self.streamer = self.streamer, None
         job = self._process_stream if streamer else self._process
         args = (streamer, audio) if streamer else (audio,)
@@ -184,7 +193,7 @@ class Dictation:
             took = self.clock() - t0
             log.info(
                 "recorded %.2fs, transcribed in %.2fs, %d chars",
-                len(audio) / self.cfg.sample_rate,
+                len(audio) / self.active.sample_rate,
                 took,
                 len(text),
             )

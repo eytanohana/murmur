@@ -31,7 +31,7 @@ Whisper is not a streaming model, so while Option is held the app re-transcribes
 3. The last `stream_holdback_words` words (1) of the newest pass are held back until they stabilize with more audio or Option is released.
 4. On release, one final pass runs on the full buffer. Only the words after the committed prefix are typed. If the final text disagrees with the committed prefix, the typed text stays, only the tail is appended, and the mismatch is logged.
 5. When the buffer exceeds `stream_trim_s` (20 s), it is cut at the end of the last committed word (word timestamps), the audio before the cut is dropped, and the committed text is passed as `initial_prompt` for later passes.
-6. Streamed chunks use type mode (no clipboard use), with a leading space between chunks. The non-stream path keeps `insert_mode`.
+6. Streamed chunks use type mode (no clipboard use), with a leading space between chunks. The non-stream path keeps `insert_mode`; with `stream = true` it has no effect.
 7. Silence gate, minimum hold, combo cancel and max length still apply. Combo cancel stops streaming; text already typed stays. The first pass runs right after the minimum hold.
 8. A pass is skipped unless the audio added since the last pass has at least `stream_min_speech_s` (0.3 s) of frames above the silence threshold.
 9. Pause flush: when the buffer ends in `stream_flush_silence_s` (0.7 s) of silence and there is unflushed speech, a pass commits every word it heard (no holdback, no second pass), so a sentence end is typed while Option is held. Leading silence is cut to 0.2 s on every pass, and trailing silence on flush and final passes, because Whisper invents words over long silence.
@@ -59,7 +59,7 @@ Both modes post Quartz keyboard events (`CGEventPost`), not pynput's `Controller
 ## Feedback
 
 - Start and stop sounds using the system sounds in `/System/Library/Sounds` (`afplay`, non-blocking). `sounds` defaults to false because the macOS mic indicator shows recording. The start sound plays when the hold threshold passes, the stop sound on release.
-- Recording indicator, `indicator = "overlay" | "menubar" | "none"` (default overlay), because a LaunchAgent gets no macOS mic indicator. The overlay is a borderless, click-through, non-activating NSPanel pill (red dot and "REC") below the menu bar and notch, on all Spaces; it appears after the hold threshold, shows "..." during the final pass and hides. The menu bar item (`rumps`) shows idle, recording and transcribing but cannot be shown when macOS hides it for lack of space. AppKit owns the main thread (accessory activation policy) and dictation runs on other threads; SIGTERM and SIGINT stop the run loop with exit status 0. No sounds unless `sounds` is on.
+- Recording indicator, `indicator = "overlay" | "none"` (default overlay), because a LaunchAgent gets no macOS mic indicator. The overlay is a borderless, click-through, non-activating NSPanel pill (red dot and "REC") below the menu bar and notch, on all Spaces; it appears after the hold threshold, shows "..." during the final pass and hides. An optional native menu bar icon (`menubar_icon`, off by default) shows that murmur is running (`mic`, `mic.fill` while recording) and offers a settings menu; macOS hides status items when the bar is full. AppKit owns the main thread (accessory activation policy) and dictation runs on other threads; SIGTERM and SIGINT stop the run loop with exit status 0. No sounds unless `sounds` is on.
 
 ## Architecture
 
@@ -75,7 +75,16 @@ src/murmur/
   audio.py        pure audio helpers: RMS, silence detection, edge trimming, buffer cut point
   streaming.py    stable-prefix commit logic and the per-utterance Streamer
   feedback.py     sounds
-  indicator.py    overlay pill and menu bar item
+  indicator.py    overlay pill and the Indicator protocol
+  host.py         the one AppKit run loop (main thread) hosting the pill and the status item
+  statusitem.py   native menu bar icon and menu (AppKit)
+  settings_schema.py  every setting once: label, help, group, kind, range, live or restart; validation derives from it
+  settings.py     menu model, LiveSettings (live Config, tomlkit writes), restart plan, icon names
+  settings_view.py  view-model helpers for the window and menu (no AppKit)
+  settingswindow.py  the native settings window (AppKit)
+  models.py       curated model list, cache detection, offline switch
+  modelswitch.py  background model download, load and swap (no display needed)
+  mainthread.py   hop onto the AppKit main thread
   agent.py        LaunchAgent plist and launchctl commands
   permissions.py  startup permission checks and prompts (Accessibility, Input Monitoring, mic)
 tests/            pytest (fakes in helpers.py, fixtures in conftest.py); unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
@@ -90,12 +99,24 @@ Notes:
 
 ## Run at login
 
-`murmur install-agent`, `uninstall-agent` and `agent-status` manage a LaunchAgent (`com.user.murmur`) built by `agent.py`. It runs the venv python directly so the privacy permission target is one stable binary, restarts only after a non-zero exit, logs to `~/Library/Logs/murmur.log` and sets `HF_HUB_OFFLINE=1`. Permissions attach to the resolved python binary when there is no terminal; the app requests the prompts at startup and names the binary in warnings. See the README for idle cost and the re-grant steps after a Python upgrade.
+`murmur install-agent`, `uninstall-agent` and `agent-status` manage a LaunchAgent (`com.user.murmur`) built by `agent.py`. It runs the venv python directly so the privacy permission target is one stable binary, restarts only after a non-zero exit, logs to `~/Library/Logs/murmur.log` and does not set `HF_HUB_OFFLINE` (the app goes offline only when the model is cached). Permissions attach to the resolved python binary when there is no terminal; the app requests the prompts at startup and names the binary in warnings. See the README for idle cost and the re-grant steps after a Python upgrade.
+
+## Menu bar icon and settings menu
+
+`menubar_icon = true` adds an NSStatusItem to the same NSApplication run loop the pill uses (`host.py` owns the loop; the pill and the status item are parts). The menu is rendered from a pure model in `settings.py`; clicking a setting validates it with the config validators and writes only that key with tomlkit (comments and other keys survive, write goes through a temp file). Settings apply on the next Option press: `LiveSettings` keeps the one live Config and does a single stat of the file at key down (before the recorder starts and the per-dictation snapshot is taken) and when the menu opens, re-reading only when the mtime moved; its own writes update the remembered mtime. `config.RESTART_KEYS` (`model_repo`, `language`, `sample_rate`, `indicator`, `menubar_icon`) stay pending until a restart, which is `launchctl kickstart -k` under launchd and a re-exec of the original interpreter arguments otherwise, after stopping the listener and recorder. An invalid file keeps the old values and is flagged in the menu header. The insert mode submenu is disabled while streaming is on, since streamed chunks are always typed. Quit is a clean exit, so the LaunchAgent stays stopped.
+
+## Settings schema and window
+
+`settings_schema.py` describes all 21 keys once (label, help, group, control kind, unit, range, step, choices, live or restart, an optional enabling condition). The config file, menu writes and the window validate through it; `config.Config` supplies the defaults. Only `sample_rate`, `indicator` and `menubar_icon` are restart-only. The settings window (`settingswindow.py`, one NSTabView tab per group) builds a row per schema entry and writes through `LiveSettings`, so a change validates, lands in the file and applies on the next Option press. Rows that do not apply are disabled with the reason, restart-only rows get a badge and a Restart now button, and a Reset button shows only for non-default values.
+
+## Models and live switching
+
+`models.py` holds the curated list (tiny.en, base.en, small.en, medium.en, large-v3 turbo, large-v3, distil large-v3; each verified against the Hugging Face API and loaded with mlx_whisper 0.4.x, which only reads `weights.safetensors` or `weights.npz`). `ModelSwitcher` downloads and loads a new model on a background thread while the old one keeps serving, then swaps under the transcriber lock and only between dictations by setting mlx_whisper's `ModelHolder`; the config value and file change only after a successful load, a failure keeps the old model, and the old weights and MLX cache are released. Switching to an English-only model sets `language = "en"`. At startup murmur goes offline only when the configured model is cached; an explicit switch lifts offline mode for its download, so an older plist that exports `HF_HUB_OFFLINE=1` still works.
 
 ## Tooling
 
 - Python managed by uv: `uv init`, `uv add`, `uv run`. Pin Python 3.12 via `.python-version`.
-- Dependencies: `mlx-whisper`, `sounddevice`, `numpy`, `pynput`, `pyobjc-framework-Quartz` if needed, `rumps` (optional extra). Dev: `pytest`, `ruff`.
+- Dependencies: `mlx-whisper`, `sounddevice`, `numpy`, `pynput`, `pyobjc-framework-Quartz` if needed, `tomlkit` (writes settings from the menu bar menu). Dev: `pytest`, `ruff`.
 - `uv.lock` is committed. `.venv/`, `__pycache__/`, model caches are git ignored.
 - `ffmpeg` is not required if audio is passed to mlx-whisper as a numpy array; avoid the dependency.
 

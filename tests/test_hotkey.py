@@ -2,7 +2,7 @@ import threading
 
 from pynput.keyboard import Key, KeyCode
 
-from murmur.config import OPTION_KEYS
+from murmur.config import OPTION_KEYS, Config
 from murmur.hotkey import OPTION_KEY_SETS, HotkeyListener
 
 A = KeyCode.from_char("a")
@@ -14,7 +14,7 @@ def make(option_keys="both"):
         lambda: events.append("press"),
         lambda: events.append("release"),
         lambda: events.append("other"),
-        option_keys,
+        Config(option_keys=option_keys),
     )
     return h, events
 

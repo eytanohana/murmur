@@ -8,7 +8,7 @@ from murmur import __main__ as cli
 @pytest.fixture
 def calls(monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli, "run_dictation", lambda cfg: seen.update(run=cfg))
+    monkeypatch.setattr(cli, "run_dictation", lambda cfg, path: seen.update(run=cfg, path=path))
     monkeypatch.setattr(cli, "main_agent", lambda command, args: seen.update(agent=(command, args)))
     return seen
 
@@ -22,6 +22,7 @@ def config_file(tmp_path, text=""):
 def test_default_run_uses_the_configured_indicator(calls, tmp_path):
     cli.main(["--config", config_file(tmp_path, 'indicator = "none"\n')])
     assert calls["run"].indicator == "none"
+    assert calls["path"] == tmp_path / "c.toml"
 
 
 def test_agent_subcommands_exit_with_their_status(calls, monkeypatch):
@@ -49,6 +50,7 @@ def test_invalid_config_is_reported_as_an_error(calls, tmp_path):
         cli.main(["--config", config_file(tmp_path, 'insert_mode = "x"\n')])
 
 
-def test_menubar_flag_is_gone(calls):
-    with pytest.raises(SystemExit):
-        cli.main(["--menubar"])
+def test_without_a_config_flag_the_default_config_path_is_used(calls, monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "default.toml")
+    cli.main([])
+    assert calls["path"] == tmp_path / "default.toml"
