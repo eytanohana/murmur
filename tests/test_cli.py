@@ -9,7 +9,6 @@ from murmur import __main__ as cli
 def calls(monkeypatch):
     seen = {}
     monkeypatch.setattr(cli, "run_dictation", lambda cfg, kind: seen.update(run=(cfg, kind)))
-    monkeypatch.setattr(cli, "test_insert", lambda cfg: seen.update(insert=cfg))
     monkeypatch.setattr(cli, "main_agent", lambda command, args: seen.update(agent=(command, args)))
     return seen
 
@@ -29,12 +28,6 @@ def test_default_run_uses_the_configured_indicator(calls, tmp_path):
 def test_menubar_flag_overrides_the_config(calls, tmp_path):
     cli.main(["--menubar", "--config", config_file(tmp_path, 'indicator = "none"\n')])
     assert calls["run"][1] == "menubar"
-
-
-def test_test_insert_runs_instead_of_dictation(calls, tmp_path):
-    cli.main(["--test-insert", "--config", config_file(tmp_path, "min_hold_ms = 5\n")])
-    assert calls["insert"].min_hold_ms == 5
-    assert "run" not in calls
 
 
 def test_agent_subcommands_exit_with_their_status(calls, monkeypatch):

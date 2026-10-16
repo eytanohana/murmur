@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -14,26 +13,12 @@ from .app import Dictation
 from .config import CONFIG_PATH, Config, load_config
 from .hotkey import HotkeyListener
 from .indicator import make_indicator
-from .inserter import Inserter, accessibility_trusted
+from .inserter import Inserter
 from .permissions import check_permissions
 from .recorder import Recorder
 from .transcriber import Transcriber
 
 log = logging.getLogger("murmur")
-
-
-def test_insert(cfg: Config) -> None:
-    """Type a phrase from a worker thread, like the streaming path does."""
-    phrase = "hello from murmur"
-    if not accessibility_trusted(prompt=True):
-        log.warning("Accessibility is not granted; the text will probably not appear.")
-    log.info("Click into a text field now. Typing in 3 seconds ...")
-    time.sleep(3)
-    inserter = Inserter(cfg.insert_mode, cfg.paste_restore_delay_ms)
-    worker = threading.Thread(target=inserter.type_text, args=(phrase,))
-    worker.start()
-    worker.join()
-    log.info("Done. If nothing appeared, check Accessibility for your terminal app.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,11 +30,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config", type=str, default=None, help=f"config path (default {CONFIG_PATH})"
-    )
-    parser.add_argument(
-        "--test-insert",
-        action="store_true",
-        help="wait 3 s, type a test phrase at the cursor, then exit",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", metavar="command")
@@ -109,10 +89,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     cfg = load_config(Path(args.config) if args.config else None)
     kind = "menubar" if args.menubar else cfg.indicator
-
-    if args.test_insert:
-        test_insert(cfg)
-        return
 
     run_dictation(cfg, kind)
 

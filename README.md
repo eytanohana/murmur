@@ -67,14 +67,6 @@ uv run murmur uninstall-agent
 
 The footprint peak includes MLX's GPU buffer cache growing across passes of different lengths; it is not released while the process runs.
 
-## Checking insertion without the microphone
-
-```
-uv run murmur --test-insert
-```
-
-Click into a text field (TextEdit) within 3 seconds. It types "hello from murmur" from a worker thread, the same way streaming does. If nothing appears, the log says whether Accessibility is missing; macOS drops posted key events silently without it.
-
 ## Behavior
 
 Streaming is on by default. While Option is held, the buffer is re-transcribed about every half second. Words that match in the same position on two consecutive passes are typed; the last word waits until it stabilizes or you release. Typed text is never edited, so a word that Whisper revises after it was typed stays as typed, and only the remaining tail is appended on release (mismatches are logged). Streamed text is typed with key events, not pasted. Set `stream = false` to transcribe only on release and use `insert_mode`.
