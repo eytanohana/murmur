@@ -6,16 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-# Whisper tends to emit these on silent or near-silent audio.
-SILENCE_ARTIFACTS = {
-    "thank you.",
-    "thank you",
-    "thanks for watching.",
-    "thanks for watching!",
-    "you",
-    "bye.",
-    "bye",
-}
+from .audio import rms
 
 
 @dataclass
@@ -25,28 +16,11 @@ class Word:
     end: float
 
 
-def rms(audio: np.ndarray) -> float:
-    if audio.size == 0:
-        return 0.0
-    return float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
-
-
-def clean_text(text: str, clip_rms: float, silence_rms: float) -> str:
-    """Trim the transcript and drop known artifacts, only when the clip is quiet."""
-    text = text.strip()
-    if clip_rms < silence_rms and text.lower() in SILENCE_ARTIFACTS:
-        return ""
-    return text
-
-
 class Transcriber:
     def __init__(self, model_repo: str, language: str = "en", silence_rms: float = 0.005):
         self.model_repo = model_repo
         self.language = language
         self.silence_rms = silence_rms
-
-    def _run(self, audio: np.ndarray) -> str:
-        return self._decode(audio)["text"]
 
     def _decode(
         self, audio: np.ndarray, word_timestamps: bool = False, initial_prompt: str | None = None
@@ -67,7 +41,7 @@ class Transcriber:
     def warm_up(self, sample_rate: int = 16000) -> None:
         """Download (first run) and load the model by transcribing 1 s of silence."""
         silence = np.zeros(sample_rate, dtype=np.float32)
-        self._run(silence)
+        self._decode(silence)
         self._decode(silence, word_timestamps=True)
 
     def transcribe(self, audio: np.ndarray) -> str:
@@ -75,7 +49,7 @@ class Transcriber:
         clip_rms = rms(audio)
         if clip_rms < self.silence_rms:
             return ""
-        return clean_text(self._run(audio), clip_rms, self.silence_rms)
+        return self._decode(audio)["text"].strip()
 
     def transcribe_words(
         self, audio: np.ndarray, initial_prompt: str | None = None, timestamps: bool = True
@@ -90,7 +64,7 @@ class Transcriber:
         if clip_rms < self.silence_rms:
             return []
         result = self._decode(audio, word_timestamps=timestamps, initial_prompt=initial_prompt)
-        text = clean_text(result.get("text", ""), clip_rms, self.silence_rms)
+        text = result.get("text", "").strip()
         if not text:
             return []
         if not timestamps:

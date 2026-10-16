@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 
 
-def play_sound(path: str, enabled: bool = True) -> None:
+def play_sound(path: str) -> None:
     """Play a sound without blocking."""
-    if not enabled:
-        return
-    try:
+    with contextlib.suppress(OSError):
         subprocess.Popen(["afplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        pass
-
-
-class NullStatus:
-    """Status sink used when no indicator is configured."""
-
-    def set(self, state: str) -> None:
-        pass

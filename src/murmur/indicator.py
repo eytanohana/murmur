@@ -7,13 +7,11 @@ any thread. stop() ends the process with status 0 (NSApp terminate).
 
 from __future__ import annotations
 
-import logging
 import signal
+import threading
 from collections.abc import Callable
+from typing import Protocol
 
-log = logging.getLogger("murmur")
-
-POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left", "bottom-right")
 PILL_W, PILL_H, MARGIN = 78.0, 26.0, 6.0
 
 MENUBAR_TITLES = {"idle": "mic", "recording": "REC", "transcribing": "..."}
@@ -42,17 +40,22 @@ def overlay_origin(frame, visible, size, position: str, margin: float = MARGIN):
     return x, y
 
 
+class Indicator(Protocol):
+    """What Dictation and main() need from an indicator."""
+
+    def set(self, state: str) -> None: ...
+
+    def run(self) -> None: ...
+
+
 class NullIndicator:
+    """No visible indicator; run() just parks the main thread."""
+
     def set(self, state: str) -> None:
         pass
 
     def run(self) -> None:
-        import threading
-
         threading.Event().wait()
-
-    def stop(self) -> None:
-        raise SystemExit(0)
 
 
 def _main_thread(fn: Callable, *args) -> None:
@@ -202,9 +205,13 @@ def install_signal_handlers(stop: Callable[[], None]) -> None:
         signal.signal(sig, lambda *_: stop())
 
 
-def make_indicator(kind: str, position: str = "top-center"):
-    if kind == "overlay":
-        return Overlay(position)
-    if kind == "menubar":
-        return MenubarIndicator()
-    return NullIndicator()
+# Keyed by the valid indicator values in config.INDICATORS.
+FACTORIES: dict[str, Callable[[str], Indicator]] = {
+    "overlay": Overlay,
+    "menubar": lambda _position: MenubarIndicator(),
+    "none": lambda _position: NullIndicator(),
+}
+
+
+def make_indicator(kind: str, position: str = "top-center") -> Indicator:
+    return FACTORIES[kind](position)

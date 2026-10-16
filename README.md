@@ -28,7 +28,7 @@ The app prints a warning at startup for Accessibility and Input Monitoring if th
 The macOS mic indicator does not appear for a LaunchAgent, so the app draws its own. Set `indicator` in the config (default `"overlay"`):
 
 - `overlay`: a small dark pill with a red dot and "REC" at the top center of the main screen, just below the menu bar and notch. It appears when the 1 s hold threshold passes (not at key down), shows an orange dot and "..." while the final pass runs, then hides. It is a borderless non-activating panel at status window level on all Spaces; it ignores the mouse and never takes focus, so typing continues in the app you are using. No sounds. `indicator_position` moves it: `top-center`, `top-left`, `top-right`, `bottom-center`, `bottom-left`, `bottom-right`.
-- `menubar`: a text item ("mic", "REC", "...") in the menu bar via rumps (`uv sync --extra menubar`). `--menubar` and `menubar = true` are aliases. It permanently uses menu bar space, and macOS hides status items that do not fit next to the notch. On the development Mac the item was created but macOS did not put it on screen because the bar was full, which is why the overlay is the default.
+- `menubar`: a text item ("mic", "REC", "...") in the menu bar via rumps (`uv sync --extra menubar`). It permanently uses menu bar space, and macOS hides status items that do not fit next to the notch. On the development Mac the item was created but macOS did not put it on screen because the bar was full, which is why the overlay is the default.
 - `none`: no indicator.
 
 AppKit runs on the main thread and dictation on other threads. The app uses the accessory activation policy, so there is no Dock icon. On startup the menu bar variant activates once (a rumps default). SIGTERM and Ctrl+C end the app with exit status 0 under both indicators. After changing `indicator` under the agent, run `launchctl kickstart -k gui/$(id -u)/com.user.murmur`.
@@ -67,14 +67,6 @@ uv run murmur uninstall-agent
 
 The footprint peak includes MLX's GPU buffer cache growing across passes of different lengths; it is not released while the process runs.
 
-## Checking insertion without the microphone
-
-```
-uv run murmur --test-insert
-```
-
-Click into a text field (TextEdit) within 3 seconds. It types "hello from murmur" from a worker thread, the same way streaming does. If nothing appears, the log says whether Accessibility is missing; macOS drops posted key events silently without it.
-
 ## Behavior
 
 Streaming is on by default. While Option is held, the buffer is re-transcribed about every half second. Words that match in the same position on two consecutive passes are typed; the last word waits until it stabilizes or you release. Typed text is never edited, so a word that Whisper revises after it was typed stays as typed, and only the remaining tail is appended on release (mismatches are logged). Streamed text is typed with key events, not pasted. Set `stream = false` to transcribe only on release and use `insert_mode`.
@@ -89,7 +81,7 @@ Streaming is on by default. While Option is held, the buffer is re-transcribed a
 
 ## Config
 
-Optional file at `~/.config/murmur/config.toml`. Any key can be omitted.
+Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown keys and values of the wrong type (for example `min_hold_ms = "1000"`) stop the app at startup with an error naming the key.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -111,7 +103,6 @@ Optional file at `~/.config/murmur/config.toml`. Any key can be omitted.
 | `stream_flush_silence_s` | `0.7` | Pause that flushes held-back words and the unsettled tail while Option is held |
 | `indicator` | `"overlay"` | `"overlay"`, `"menubar"` or `"none"` |
 | `indicator_position` | `"top-center"` | Overlay position |
-| `menubar` | `false` | Deprecated alias for `indicator = "menubar"` |
 
 ## Pause flush
 

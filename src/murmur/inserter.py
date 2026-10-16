@@ -65,19 +65,27 @@ def _source():
     return Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
 
 
+def _tap(source, keycode: int, text: str | None = None) -> None:
+    _post(source, keycode, True, 0, text)
+    _post(source, keycode, False, 0, text)
+
+
 def post_text(text: str) -> int:
-    """Type text as Unicode key events with no modifier flags. Returns events posted."""
+    """Type text as Unicode key events with no modifier flags. Returns events posted.
+
+    Every newline is a real Return key press, wherever it falls in the text.
+    """
     source = _source()
     posted = 0
-    for chunk in utf16_chunks(text):
-        if chunk == "\n":
-            _post(source, KEYCODE_RETURN, True, 0)
-            _post(source, KEYCODE_RETURN, False, 0)
-        else:
-            _post(source, 0, True, 0, chunk)
-            _post(source, 0, False, 0, chunk)
-        posted += 2
-        time.sleep(0.002)
+    for i, line in enumerate(text.split("\n")):
+        if i:
+            _tap(source, KEYCODE_RETURN)
+            posted += 2
+            time.sleep(0.002)
+        for chunk in utf16_chunks(line):
+            _tap(source, 0, chunk)
+            posted += 2
+            time.sleep(0.002)
     return posted
 
 

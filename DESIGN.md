@@ -46,7 +46,7 @@ Edge cases to handle:
 - Combo cancel: if any other key is pressed while Option is held (Option+Arrow, Option+letter), cancel the recording and discard it.
 - Maximum length: cap a recording at 120 s, then stop and transcribe.
 - Silence: if the clip is near silent (RMS below a threshold) or the transcript is empty, insert nothing.
-- Hallucinations: pass `condition_on_previous_text=False` and trim the result. Drop known Whisper silence artifacts such as "Thank you." only when the clip RMS is below the silence threshold.
+- Hallucinations: pass `condition_on_previous_text=False` and trim the result. Clips below the silence threshold are never decoded, which also stops silence artifacts such as "Thank you.".
 - Left and right Option both trigger by default; configurable.
 - A new press during transcription queues behind the running job, or is ignored with a log line. Pick one and document it.
 
@@ -72,11 +72,13 @@ src/murmur/
   transcriber.py  mlx_whisper.transcribe wrapper, model preloaded and warmed at startup
   inserter.py     clipboard paste and type modes
   app.py          state machine: IDLE -> RECORDING -> TRANSCRIBING -> IDLE
+  audio.py        pure audio helpers: RMS, silence detection, edge trimming, buffer cut point
   streaming.py    stable-prefix commit logic and the per-utterance Streamer
   feedback.py     sounds
   indicator.py    overlay pill and menu bar item
   agent.py        LaunchAgent plist and launchctl commands
-tests/            pytest; unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
+  permissions.py  startup permission checks and prompts (Accessibility, Input Monitoring, mic)
+tests/            pytest (fakes in helpers.py, fixtures in conftest.py); unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
 ```
 
 Notes:

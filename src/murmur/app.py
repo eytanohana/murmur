@@ -17,10 +17,20 @@ import enum
 import logging
 import threading
 import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from .config import Config
-from .feedback import NullStatus, play_sound
+from .feedback import play_sound
+from .indicator import Indicator, NullIndicator
 from .streaming import Streamer
+
+if TYPE_CHECKING:
+    from .inserter import Inserter
+    from .recorder import Recorder
+    from .transcriber import Transcriber
 
 log = logging.getLogger("murmur")
 
@@ -31,26 +41,37 @@ class State(enum.Enum):
     TRANSCRIBING = "transcribing"
 
 
+def start_timer(delay_s: float, fn: Callable[[], None]) -> None:
+    """Run fn once after delay_s on a daemon thread."""
+    timer = threading.Timer(delay_s, fn)
+    timer.daemon = True
+    timer.start()
+
+
 class Dictation:
+    """The seams (clock, run_async, sound, schedule) exist so tests can drive it."""
+
     def __init__(
         self,
         cfg: Config,
-        recorder,
-        transcriber,
-        inserter,
-        status=None,
-        clock=time.monotonic,
+        recorder: Recorder,
+        transcriber: Transcriber,
+        inserter: Inserter,
+        indicator: Indicator | None = None,
+        clock: Callable[[], float] = time.monotonic,
         run_async: bool = True,
-        sound=play_sound,
+        sound: Callable[[str], None] = play_sound,
+        schedule: Callable[[float, Callable[[], None]], None] = start_timer,
     ):
         self.cfg = cfg
         self.recorder = recorder
         self.transcriber = transcriber
         self.inserter = inserter
-        self.status = status or NullStatus()
+        self.indicator = indicator or NullIndicator()
         self.clock = clock
         self.run_async = run_async
         self.sound = sound
+        self.schedule = schedule
         self.state = State.IDLE
         self._lock = threading.Lock()
         self._started_at = 0.0
@@ -64,7 +85,7 @@ class Dictation:
         # The indicator shows "recording" only once the hold threshold passes
         # (see _threshold_passed), not at key down.
         if state is not State.RECORDING:
-            self.status.set(state.value)
+            self.indicator.set(state.value)
 
     def on_press(self) -> None:
         with self._lock:
@@ -75,7 +96,7 @@ class Dictation:
                 return
             try:
                 self.recorder.start()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  any recorder failure leaves us idle
                 log.error(
                     "Could not start recording (%s). Check Microphone permission "
                     "in System Settings > Privacy & Security.",
@@ -91,28 +112,28 @@ class Dictation:
                 self.streamer.start()
             self._press_id += 1
             # Marks that the hold threshold passed (indicator and optional sound).
-            timer = threading.Timer(
-                self.cfg.min_hold_ms / 1000, self._threshold_passed, args=(self._press_id,)
-            )
-            timer.daemon = True
-            timer.start()
+            press_id = self._press_id
+            self.schedule(self.cfg.min_hold_ms / 1000, lambda: self._threshold_passed(press_id))
 
     def _threshold_passed(self, press_id: int) -> None:
         with self._lock:
             if self.state is not State.RECORDING or press_id != self._press_id:
                 return
-        self.status.set("recording")
+        self.indicator.set("recording")
         if self.cfg.sounds:
-            self.sound(self.cfg.start_sound, True)
+            self.sound(self.cfg.start_sound)
+
+    def _discard_streamer(self) -> None:
+        if self.streamer:
+            self.streamer.cancel()
+            self.streamer = None
 
     def on_other_key(self) -> None:
         with self._lock:
             if self.state is not State.RECORDING:
                 return
             self.recorder.stop()
-            if self.streamer:
-                self.streamer.cancel()
-                self.streamer = None
+            self._discard_streamer()
             self._set_state(State.IDLE)
         log.info("Other key pressed with Option held; recording cancelled")
 
@@ -123,24 +144,22 @@ class Dictation:
             held = self.clock() - self._started_at
             audio = self.recorder.stop()
             if held * 1000 < self.cfg.min_hold_ms:
-                if self.streamer:
-                    self.streamer.cancel()
-                    self.streamer = None
+                self._discard_streamer()
                 self._set_state(State.IDLE)
                 log.debug("Hold of %.0f ms below minimum; ignored", held * 1000)
                 return
             self._set_state(State.TRANSCRIBING)
         if self.cfg.sounds:
-            self.sound(self.cfg.stop_sound, True)
+            self.sound(self.cfg.stop_sound)
         streamer, self.streamer = self.streamer, None
         job = self._process_stream if streamer else self._process
-        args = (streamer, audio) if streamer else (audio, held)
+        args = (streamer, audio) if streamer else (audio,)
         if self.run_async:
             threading.Thread(target=job, args=args, daemon=True).start()
         else:
             job(*args)
 
-    def _process_stream(self, streamer: Streamer, audio) -> None:
+    def _process_stream(self, streamer: Streamer, audio: np.ndarray) -> None:
         try:
             t0 = self.clock()
             streamer.finish(audio)
@@ -158,7 +177,7 @@ class Dictation:
             with self._lock:
                 self._set_state(State.IDLE)
 
-    def _process(self, audio, held: float) -> None:
+    def _process(self, audio: np.ndarray) -> None:
         try:
             t0 = self.clock()
             text = self.transcriber.transcribe(audio)

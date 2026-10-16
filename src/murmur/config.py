@@ -6,8 +6,10 @@ import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-from .indicator import POSITIONS
-
+OPTION_KEYS = ("left", "right", "both")
+INDICATORS = ("none", "menubar", "overlay")
+INSERT_MODES = ("paste", "type")
+POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left", "bottom-right")
 CONFIG_PATH = Path.home() / ".config" / "murmur" / "config.toml"
 
 
@@ -32,8 +34,6 @@ class Config:
     indicator: str = "overlay"
     # Overlay position: top-center, top-left, top-right, bottom-center, bottom-left, bottom-right
     indicator_position: str = "top-center"
-    # Deprecated alias for indicator = "menubar".
-    menubar: bool = False
     # Streaming: type stable words while Option is held. false = transcribe on release.
     stream: bool = True
     stream_interval: float = 0.5
@@ -42,6 +42,29 @@ class Config:
     stream_min_speech_s: float = 0.3
     # A pause this long flushes held-back words and the unsettled tail while Option is held.
     stream_flush_silence_s: float = 0.7
+
+
+def check_choice(key: str, value: str, valid: tuple[str, ...]) -> None:
+    if value not in valid:
+        options = ", ".join(repr(v) for v in valid[:-1]) + f" or {valid[-1]!r}"
+        raise ValueError(f"{key} must be {options}")
+
+
+def check_type(key: str, value: object, default: object) -> None:
+    """Require the value to have the type of the field's default.
+
+    bool fields accept only bool, int fields reject bool, float fields take int or
+    float but not bool (TOML has no implicit conversions and bool is an int in Python).
+    """
+    expected = type(default)
+    if expected is float:
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+    elif expected is int:
+        ok = isinstance(value, int) and not isinstance(value, bool)
+    else:
+        ok = isinstance(value, expected)
+    if not ok:
+        raise ValueError(f"{key} must be {expected.__name__}, got {type(value).__name__}")
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -57,15 +80,10 @@ def load_config(path: Path | None = None) -> Config:
     if unknown:
         raise ValueError(f"Unknown config keys in {path}: {sorted(unknown)}")
     for key, value in data.items():
+        check_type(key, value, getattr(cfg, key))
         setattr(cfg, key, value)
-    if cfg.option_keys not in ("left", "right", "both"):
-        raise ValueError("option_keys must be 'left', 'right' or 'both'")
-    if cfg.menubar:
-        cfg.indicator = "menubar"
-    if cfg.indicator not in ("none", "menubar", "overlay"):
-        raise ValueError("indicator must be 'none', 'menubar' or 'overlay'")
-    if cfg.indicator_position not in POSITIONS:
-        raise ValueError(f"indicator_position must be one of {POSITIONS}")
-    if cfg.insert_mode not in ("paste", "type"):
-        raise ValueError("insert_mode must be 'paste' or 'type'")
+    check_choice("option_keys", cfg.option_keys, OPTION_KEYS)
+    check_choice("indicator", cfg.indicator, INDICATORS)
+    check_choice("indicator_position", cfg.indicator_position, POSITIONS)
+    check_choice("insert_mode", cfg.insert_mode, INSERT_MODES)
     return cfg

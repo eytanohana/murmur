@@ -1,180 +1,198 @@
-from types import SimpleNamespace
+"""Dictation state machine: hold threshold, cancel paths, indicator and sound timing."""
 
-import numpy as np
+from __future__ import annotations
 
-from murmur.app import Dictation, State
-from murmur.config import Config
+import logging
 
-
-class FakeRecorder:
-    def __init__(self, audio=None):
-        self.audio = audio if audio is not None else np.full(16000, 0.1, dtype=np.float32)
-        self.started = 0
-        self.stopped = 0
-        self.on_max = None
-
-    def start(self):
-        self.started += 1
-
-    def stop(self):
-        self.stopped += 1
-        return self.audio
+from helpers import FakeRecorder, ScriptedTranscriber, ws
+from murmur.app import State
 
 
-class FakeTranscriber:
-    def __init__(self, text="hello world"):
-        self.text = text
-        self.calls = 0
-
-    def transcribe(self, audio):
-        self.calls += 1
-        return self.text
+def hold(r, seconds: float) -> None:
+    r.clock.t = seconds
+    r.d.on_release()
 
 
-class FakeInserter:
-    def __init__(self):
-        self.inserted = []
-
-    def insert(self, text):
-        self.inserted.append(text)
-
-
-class Clock:
-    def __init__(self):
-        self.t = 0.0
-
-    def __call__(self):
-        return self.t
-
-
-def make(text="hello world", audio=None):
-    clock = Clock()
-    rec, tr, ins = FakeRecorder(audio), FakeTranscriber(text), FakeInserter()
-    sounds = []
-    d = Dictation(
-        Config(stream=False),
-        rec,
-        tr,
-        ins,
-        clock=clock,
-        run_async=False,
-        sound=lambda path, enabled: sounds.append(path),
-    )
-    return SimpleNamespace(d=d, clock=clock, rec=rec, tr=tr, ins=ins, sounds=sounds)
-
-
-def test_normal_dictation_inserts_text():
-    r = make()
+def test_normal_dictation_inserts_text(make_dictation):
+    r = make_dictation()
     r.d.on_press()
     assert r.d.state is State.RECORDING
-    r.clock.t = 1.0
-    r.d.on_release()
+    hold(r, 1.0)
     assert r.ins.inserted == ["hello world"]
     assert r.d.state is State.IDLE
-    assert r.sounds == []  # sounds are off by default
 
 
-def test_short_tap_is_ignored():
-    r = make()
+def test_short_tap_discards_everything(make_dictation):
+    r = make_dictation()
     r.d.on_press()
-    r.clock.t = 0.9
-    r.d.on_release()
-    assert r.tr.calls == 0
-    assert r.ins.inserted == []
-    assert r.d.state is State.IDLE
+    hold(r, 0.9)
+    assert (r.tr.calls, r.ins.inserted, r.d.state) == (0, [], State.IDLE)
 
 
-def test_hold_at_threshold_is_accepted():
-    r = make()
+def test_hold_exactly_at_the_threshold_is_accepted(make_dictation):
+    r = make_dictation()
     r.d.on_press()
-    r.clock.t = 1.0
-    r.d.on_release()
+    hold(r, 1.0)
     assert r.ins.inserted == ["hello world"]
 
 
-def test_start_sound_plays_only_after_the_hold_threshold():
-    import time
-
-    rec, sounds = FakeRecorder(), []
-    cfg = Config(stream=False, sounds=True, min_hold_ms=100)
-    d = Dictation(
-        cfg,
-        rec,
-        FakeTranscriber(),
-        FakeInserter(),
-        run_async=False,
-        sound=lambda path, enabled: sounds.append(path),
-    )
-    d.on_press()
-    assert sounds == []  # nothing at key down
-    time.sleep(0.3)
-    assert sounds == [cfg.start_sound]
-    d.on_release()
-    assert sounds[-1] == cfg.stop_sound
-
-
-def test_tap_before_threshold_plays_no_sound():
-    import time
-
-    rec, sounds = FakeRecorder(), []
-    cfg = Config(stream=False, sounds=True, min_hold_ms=200)
-    d = Dictation(
-        cfg,
-        rec,
-        FakeTranscriber(),
-        FakeInserter(),
-        run_async=False,
-        sound=lambda path, enabled: sounds.append(path),
-    )
-    d.on_press()
-    d.on_release()
-    time.sleep(0.4)
-    assert sounds == []
-
-
-def test_other_key_cancels_recording():
-    r = make()
+def test_other_key_cancels_recording_and_the_later_release_is_a_noop(make_dictation):
+    r = make_dictation()
     r.d.on_press()
     r.d.on_other_key()
     assert r.d.state is State.IDLE
-    r.clock.t = 2.0
-    r.d.on_release()
-    assert r.tr.calls == 0
-    assert r.ins.inserted == []
+    hold(r, 2.0)
+    assert (r.tr.calls, r.ins.inserted) == (0, [])
 
 
-def test_empty_transcript_inserts_nothing():
-    r = make(text="")
+def test_empty_transcript_inserts_nothing(make_dictation):
+    r = make_dictation(text="")
     r.d.on_press()
-    r.clock.t = 1.0
-    r.d.on_release()
-    assert r.tr.calls == 1
-    assert r.ins.inserted == []
+    hold(r, 1.0)
+    assert (r.tr.calls, r.ins.inserted) == (1, [])
 
 
-def test_press_during_transcription_is_ignored():
-    r = make()
+def test_second_press_while_recording_is_ignored(make_dictation):
+    r = make_dictation()
     r.d.on_press()
-    r.clock.t = 1.0
-    r.d.state = State.TRANSCRIBING
     r.d.on_press()
     assert r.rec.started == 1
+    assert len(r.schedule.pending) == 1
 
 
-def test_max_length_callback_stops_and_transcribes():
-    r = make()
+def test_press_during_transcription_is_ignored_and_logged(make_dictation, caplog):
+    r = make_dictation()
+    r.d.on_press()
+    r.d.state = State.TRANSCRIBING
+    with caplog.at_level(logging.INFO, logger="murmur"):
+        r.d.on_press()
+    assert r.rec.started == 1
+    assert "Option pressed during transcription; ignored" in caplog.text
+
+
+def test_max_length_callback_stops_and_transcribes(make_dictation):
+    r = make_dictation()
     r.d.on_press()
     r.clock.t = 120.0
     r.rec.on_max()
     assert r.ins.inserted == ["hello world"]
-    r.d.on_release()  # later physical release is a no-op
+    r.d.on_release()  # the later physical release is a no-op
     assert r.tr.calls == 1
 
 
-def test_transcriber_error_returns_to_idle():
-    r = make()
-    r.tr.transcribe = lambda audio: (_ for _ in ()).throw(RuntimeError("boom"))
+def test_transcriber_error_returns_to_idle(make_dictation):
+    r = make_dictation()
+
+    def boom(audio):
+        raise RuntimeError("boom")
+
+    r.tr.transcribe = boom
     r.d.on_press()
-    r.clock.t = 1.0
-    r.d.on_release()
+    hold(r, 1.0)
     assert r.d.state is State.IDLE
+    assert r.indicator.states[-1] == "idle"
+
+
+def test_recorder_failure_leaves_the_machine_idle(make_dictation, caplog):
+    r = make_dictation(recorder=FakeRecorder(fail_on_start=OSError("no mic")), stream=True)
+    with caplog.at_level(logging.ERROR, logger="murmur"):
+        r.d.on_press()
+    assert r.d.state is State.IDLE
+    assert r.d.streamer is None
+    assert r.schedule.pending == []
+    assert "Could not start recording" in caplog.text
+
+
+def test_start_sound_waits_for_the_threshold_and_stop_sound_follows_release(make_dictation):
+    r = make_dictation(sounds=True)
+    r.d.on_press()
+    assert r.sounds == []  # nothing at key down
+    assert r.schedule.pending[0][0] == 1.0  # scheduled for min_hold_ms
+    r.schedule.fire()
+    assert r.sounds == [r.d.cfg.start_sound]
+    hold(r, 1.5)
+    assert r.sounds == [r.d.cfg.start_sound, r.d.cfg.stop_sound]
+
+
+def test_no_sounds_by_default(make_dictation):
+    r = make_dictation()
+    r.d.on_press()
+    r.schedule.fire()
+    hold(r, 1.5)
+    assert r.sounds == []
+
+
+def test_tap_never_plays_the_start_sound(make_dictation):
+    r = make_dictation(sounds=True)
+    r.d.on_press()
+    hold(r, 0.3)
+    r.schedule.fire()  # the timer still fires after the tap
+    assert r.sounds == []
+
+
+def test_indicator_shows_recording_only_after_the_threshold(make_dictation):
+    r = make_dictation()
+    r.d.on_press()
+    assert r.indicator.states == []
+    r.schedule.fire()
+    assert r.indicator.states == ["recording"]
+    hold(r, 1.0)
+    assert r.indicator.states == ["recording", "transcribing", "idle"]
+
+
+def test_stale_threshold_timer_from_a_tap_does_not_light_the_next_recording(make_dictation):
+    r = make_dictation()
+    r.d.on_press()
+    hold(r, 0.2)  # tap
+    r.d.on_press()  # a second press starts a new recording
+    r.schedule.fire(0)  # the first press's timer fires during the second press
+    assert "recording" not in r.indicator.states
+    r.schedule.fire(1)
+    assert r.indicator.states.count("recording") == 1
+
+
+def test_combo_cancel_after_the_threshold_hides_the_indicator(make_dictation):
+    r = make_dictation()
+    r.d.on_press()
+    r.schedule.fire()
+    r.d.on_other_key()
+    assert r.indicator.states == ["recording", "idle"]
+
+
+def test_streaming_release_types_the_tail(make_dictation):
+    rec = FakeRecorder()
+    r = make_dictation(recorder=rec, stream=True)
+    r.d.transcriber = ScriptedTranscriber([ws("hello", "there")])
+    r.d.on_press()
+    rec.feed(1.0)
+    hold(r, 1.0)
+    assert r.ins.typed == ["hello there"]
+    assert r.ins.inserted == []  # streamed text is typed, never pasted
+    assert r.d.state is State.IDLE
+
+
+def test_streaming_failure_returns_to_idle(make_dictation):
+    rec = FakeRecorder()
+    r = make_dictation(recorder=rec, stream=True)
+    r.d.transcriber = ScriptedTranscriber([])  # the final pass raises IndexError
+    r.d.on_press()
+    rec.feed(1.0)
+    hold(r, 1.0)
+    assert r.d.state is State.IDLE
+
+
+def test_streaming_combo_cancel_stops_the_streamer(make_dictation):
+    r = make_dictation(stream=True)
+    r.d.on_press()
+    streamer = r.d.streamer
+    r.d.on_other_key()
+    assert streamer.cancelled and r.d.streamer is None
+    assert r.d.state is State.IDLE
+
+
+def test_streaming_tap_cancels_the_streamer(make_dictation):
+    r = make_dictation(stream=True)
+    r.d.on_press()
+    streamer = r.d.streamer
+    hold(r, 0.4)
+    assert streamer.cancelled and r.d.streamer is None

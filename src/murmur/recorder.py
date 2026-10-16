@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 
 import numpy as np
 import sounddevice as sd
+
+log = logging.getLogger("murmur")
 
 
 class Recorder:
@@ -14,18 +17,20 @@ class Recorder:
         self.max_samples = int(max_seconds * sample_rate)
         self.on_max = on_max
         self._chunks: list[np.ndarray] = []
-        self._samples = 0  # samples currently in the buffer
         self._total = 0  # samples captured since start, never reduced by trim
         self._stream: sd.InputStream | None = None
         self._lock = threading.Lock()
         self._max_fired = False
+        self._warned_status = False
 
     def _callback(self, indata, frames, time_info, status) -> None:
+        if status and not self._warned_status:
+            self._warned_status = True  # one warning per recording, not one per buffer
+            log.warning("Audio input problem (%s); the recording may have gaps", status)
         fire = False
         with self._lock:
             if self._total < self.max_samples:
                 self._chunks.append(indata[:, 0].copy())
-                self._samples += frames
                 self._total += frames
             if self._total >= self.max_samples and not self._max_fired:
                 self._max_fired = True
@@ -37,9 +42,9 @@ class Recorder:
     def start(self) -> None:
         with self._lock:
             self._chunks = []
-            self._samples = 0
             self._total = 0
             self._max_fired = False
+            self._warned_status = False
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             channels=1,
@@ -76,4 +81,3 @@ class Recorder:
                 return
             data = np.concatenate(self._chunks)[n_samples:]
             self._chunks = [data] if data.size else []
-            self._samples = data.size
