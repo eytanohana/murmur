@@ -40,13 +40,13 @@ On a Mac with a notch, macOS hides status items that do not fit. On the developm
 
 Click the icon for the menu:
 
-- "murmur is running" and the model name (disabled lines).
-- Streaming and Sounds toggles with checkmarks; Overlay position and Insert mode submenus with a checkmark on the current value.
+- "murmur is running" (or "Config error: see log" when the file on disk is invalid) and the model name, as disabled lines.
+- Streaming and Sounds toggles with checkmarks; Overlay position and Insert mode submenus with a checkmark on the current value. The Insert mode submenu is greyed out while Streaming is on, because it only matters when streaming is off.
 - Open config file: creates `~/.config/murmur/config.toml` (or the `--config` path) with a short commented header when it is missing, then opens it with `open -t`.
-- Restart to apply changes: enabled and checked once something changed.
+- "Restart murmur", which becomes "Restart to apply changes (keys)" and is checked when a restart-only key was changed in the file.
 - Quit murmur.
 
-Changing a setting validates the value and writes just that key to the config file with tomlkit, so your comments and other keys stay. Settings apply after a restart; the menu keeps showing the pending values.
+Changing a setting validates the value and writes just that key to the config file with tomlkit, so your comments and other keys stay. The change applies on the next Option press, no restart needed.
 
 **Restart.** Under the LaunchAgent (detected by `XPC_SERVICE_NAME` equal to the job label) it runs `launchctl kickstart -k gui/<uid>/com.user.murmur`. In a terminal it stops the hotkey listener and the recorder, then re-executes the same interpreter with the original arguments (`python -m murmur ...` or the `murmur` script) in the same process, so two copies never run. Limits: the re-exec is only for runs outside launchd; a failure to exec is not retried and shows up in the log. A restart reloads the model, so the app is deaf for the few seconds that takes. Both paths were exercised with a status item in a scratch run (the process kept its PID across the re-exec), but not with a real Option key press.
 
@@ -68,7 +68,7 @@ uv run murmur uninstall-agent
 
 **Logs:** `tail -f ~/Library/Logs/murmur.log` (stdout and stderr, including permission warnings).
 
-**After editing the config:** `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
+**After editing the config:** nothing for most keys, they apply on the next Option press. After changing `model_repo`, `language`, `sample_rate`, `indicator` or `menubar_icon`: `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
 
 **Permissions:** with no terminal attached, macOS attributes the permissions to the Python binary itself, not to your terminal. `install-agent` prints its path after installing, with symlinks resolved (for example `~/.local/share/uv/python/cpython-3.12.x-macos-aarch64-none/bin/python3.12`). In System Settings > Privacy & Security add that binary to Accessibility, Input Monitoring and Microphone (click +, press Cmd+Shift+G, paste the path), then run the kickstart command above. At startup the app requests the prompts for itself and warns in the log, naming the binary, when Accessibility or Input Monitoring is missing or the microphone returns only silence.
 
@@ -100,6 +100,8 @@ Streaming is on by default. While Option is held, the buffer is re-transcribed a
 
 ## Config
 
+Changes to the file apply on the next Option press, no restart needed. murmur checks the file's modification time once when you press Option (and when the menu bar menu opens) and only re-reads it when that changed. A key press picks up the new values for that dictation and they stay fixed until it ends. Only `model_repo`, `language`, `sample_rate`, `indicator` and `menubar_icon` need a restart; murmur logs them as pending and the menu names them. If the file is invalid, murmur keeps the previous settings, logs one warning per change and shows "Config error: see log" in the menu.
+
 Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown keys and values of the wrong type (for example `min_hold_ms = "1000"`) stop the app at startup with an error naming the key.
 
 | Key | Default | Meaning |
@@ -110,7 +112,7 @@ Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown
 | `max_record_s` | `120` | Maximum recording length |
 | `silence_rms` | `0.005` | RMS below this counts as silence |
 | `option_keys` | `"both"` | `"left"`, `"right"` or `"both"` |
-| `insert_mode` | `"paste"` | `"paste"` or `"type"`; used only when `stream = false` |
+| `insert_mode` | `"paste"` | `"paste"` or `"type"`. With `stream = true` every chunk is typed with key events and this setting does nothing; with `stream = false` the whole clip is inserted on release, either by clipboard and Cmd+V (the previous plain-text clipboard is restored) or by typing key events with no clipboard. |
 | `paste_restore_delay_ms` | `150` | Wait before restoring the clipboard |
 | `sounds` | `false` | Start sound (when the hold threshold passes) and stop sound (on release); off because the macOS mic indicator shows recording |
 | `start_sound`, `stop_sound` | Tink, Pop | Paths under `/System/Library/Sounds` |

@@ -23,7 +23,8 @@ class Config:
     silence_rms: float = 0.005
     # "left", "right" or "both"
     option_keys: str = "both"
-    # "paste" or "type"
+    # "paste" or "type". Used only when stream = false: streamed chunks are always typed.
+    # paste = clipboard plus Cmd+V (plain-text clipboard restored); type = key events.
     insert_mode: str = "paste"
     paste_restore_delay_ms: int = 150
     # Start and stop sounds. Off by default; the macOS mic indicator shows recording.

@@ -24,7 +24,7 @@ from .config import (
 
 CONFIG_HEADER = (
     "# murmur config. Every key is optional; see the README for the full list.\n"
-    "# Changes apply after murmur restarts.\n"
+    "# Changes apply on the next Option press (a few keys need a restart).\n"
 )
 
 log = logging.getLogger("murmur")
