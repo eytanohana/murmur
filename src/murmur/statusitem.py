@@ -11,7 +11,9 @@ import logging
 import subprocess
 from collections.abc import Callable
 
+from . import models
 from .mainthread import main_thread
+from .modelswitch import ModelSwitcher
 from .settings import (
     ICON_DESCRIPTIONS,
     LiveSettings,
@@ -20,6 +22,7 @@ from .settings import (
     ensure_config_file,
     icon_for,
 )
+from .settingswindow import SettingsWindow
 
 log = logging.getLogger("murmur")
 
@@ -27,9 +30,17 @@ CHECKED = 1  # NSControlStateValueOn
 
 
 class StatusItem:
-    def __init__(self, live: LiveSettings, on_restart: Callable[[], None]):
+    def __init__(
+        self,
+        live: LiveSettings,
+        on_restart: Callable[[], None],
+        switcher: ModelSwitcher | None = None,
+        window: SettingsWindow | None = None,
+    ):
         self.live = live
         self.on_restart = on_restart
+        self.switcher = switcher
+        self.window = window
         self.item = None
         self.menu = None
         self.target = None
@@ -84,7 +95,10 @@ class StatusItem:
     def _rebuild_menu(self) -> None:
         self._by_tag.clear()
         self.menu.removeAllItems()
-        self._fill(self.menu, build_menu(self.live.cfg, list(self.live.pending), self.live.error))
+        state = self.switcher.state if self.switcher else None
+        cached = {m.repo for m in models.CATALOG if models.is_cached(m.repo)}
+        items = build_menu(self.live.cfg, list(self.live.pending), self.live.error, state, cached)
+        self._fill(self.menu, items)
 
     def _fill(self, menu, items) -> None:
         import AppKit
@@ -120,6 +134,9 @@ class StatusItem:
         elif it.action == "open_config":
             ensure_config_file(self.live.path)
             subprocess.Popen(["open", "-t", str(self.live.path)])
+        elif it.action == "settings":
+            if self.window is not None:
+                self.window.show()
         elif it.action == "restart":
             self.on_restart()
         elif it.action == "quit":

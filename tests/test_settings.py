@@ -1,10 +1,9 @@
 import pytest
 
-from murmur import settings
+from murmur import models, settings
 from murmur.agent import LABEL
-from murmur.config import POSITIONS, Config, load_config
-
-INSERT_LABEL = "Insert mode (used when streaming is off)"
+from murmur.config import Config, load_config
+from murmur.modelswitch import SwitchState
 
 
 def flatten(items):
@@ -29,12 +28,18 @@ def test_icon_per_state():
 # ---- menu model ----------------------------------------------------------------
 
 
-def test_menu_headers_show_status_and_model_and_are_disabled():
-    menu = settings.build_menu(Config(model_repo="org/model"))
+def test_menu_headers_show_status_and_the_current_model_and_are_disabled():
+    menu = settings.build_menu(Config(model_repo="mlx-community/whisper-small.en-mlx"))
     assert [(i.title, i.enabled) for i in menu[:2]] == [
         ("murmur is running", False),
-        ("org/model", False),
+        ("Model: small.en (481 MB)", False),
     ]
+
+
+def test_header_shows_a_model_load_in_progress_and_a_config_error():
+    loading = SwitchState("loading", "mlx-community/whisper-base.en-mlx", progress=0.5)
+    assert settings.build_menu(Config(), switch=loading)[0].title == "Loading base.en 50%..."
+    assert settings.build_menu(Config(), error="bad")[0].title == "Config error: see log"
 
 
 def test_toggles_show_the_current_value_and_write_the_opposite():
@@ -44,19 +49,35 @@ def test_toggles_show_the_current_value_and_write_the_opposite():
     assert (sounds.checked, sounds.key, sounds.value) == (False, "sounds", True)
 
 
-def test_position_submenu_has_one_radio_checkmark_per_current_value():
-    menu = settings.build_menu(Config(indicator_position="bottom-left"), pending=[])
-    submenu = find(menu, "Overlay position")
-    assert [c.title for c in submenu.children] == list(POSITIONS)
-    assert [c.title for c in submenu.children if c.checked] == ["bottom-left"]
-    assert all(c.key == "indicator_position" and c.value == c.title for c in submenu.children)
+def test_the_menu_is_compact():
+    titles = [i.title for i in settings.build_menu(Config()) if i.kind != "separator"]
+    assert titles[2:] == [
+        "Streaming",
+        "Sounds",
+        "Model",
+        "Settings...",
+        "Open config file",
+        "Restart murmur",
+        "Quit murmur",
+    ]
 
 
-def test_insert_mode_submenu_is_only_enabled_when_streaming_is_off():
-    on = find(settings.build_menu(Config(insert_mode="type", stream=True)), INSERT_LABEL)
-    off = find(settings.build_menu(Config(insert_mode="type", stream=False)), INSERT_LABEL)
-    assert on.enabled is False and off.enabled is True
-    assert [(c.title, c.checked) for c in off.children] == [("paste", False), ("type", True)]
+def test_model_submenu_has_one_radio_checkmark_and_shows_size_and_cache_state():
+    current = "mlx-community/whisper-small.en-mlx"
+    menu = settings.build_menu(Config(model_repo=current), cached={current})
+    submenu = find(menu, "Model")
+    assert len(submenu.children) == len(models.CATALOG)
+    assert [c.value for c in submenu.children if c.checked] == [current]
+    assert all(c.key == "model_repo" for c in submenu.children)
+    labels = {c.value: c.title for c in submenu.children}
+    assert labels[current] == "small.en (481 MB, English, cached)"
+    assert labels["mlx-community/whisper-tiny.en-mlx"].endswith("download)")
+
+
+def test_a_model_outside_the_catalog_is_listed_and_checked():
+    menu = settings.build_menu(Config(model_repo="me/custom"))
+    children = find(menu, "Model").children
+    assert children[0].title == "custom (custom)" and children[0].checked
 
 
 def test_restart_item_names_the_pending_restart_keys():
@@ -75,9 +96,13 @@ def test_config_error_replaces_the_running_header():
 
 
 def test_actions_and_order():
-    menu = settings.build_menu(Config(), pending=[])
-    actions = [i.action for i in menu if i.kind == "action"]
-    assert actions == ["open_config", "restart", "quit"]
+    menu = settings.build_menu(Config())
+    assert [i.action for i in menu if i.kind == "action"] == [
+        "settings",
+        "open_config",
+        "restart",
+        "quit",
+    ]
     assert menu[-1].title == "Quit murmur"
 
 

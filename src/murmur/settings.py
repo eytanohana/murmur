@@ -6,21 +6,17 @@ import logging
 import os
 import sys
 import tomllib
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
 
 import tomlkit
 
+from . import models
 from .agent import LABEL, service_target
-from .config import (
-    INSERT_MODES,
-    LIVE_KEYS,
-    POSITIONS,
-    Config,
-    load_config,
-    validate_setting,
-)
+from .config import LIVE_KEYS, Config, load_config, validate_setting
+from .modelswitch import SwitchState
+from .settings_view import header_text, model_options
 
 CONFIG_HEADER = (
     "# murmur config. Every key is optional; see the README for the full list.\n"
@@ -60,37 +56,35 @@ class MenuItem:
 
 
 def build_menu(
-    cfg: Config, pending: Sequence[str] = (), error: str | None = None
+    cfg: Config,
+    pending: Sequence[str] = (),
+    error: str | None = None,
+    switch: SwitchState | None = None,
+    cached: Collection[str] = (),
 ) -> list[MenuItem]:
-    """The menu for the live `cfg`.
+    """The compact menu for the live `cfg`.
 
     `pending` names RESTART keys changed in the file but not yet applied; `error` is set
-    when the file on disk is invalid and the old values are being kept.
+    when the file on disk is invalid and the old values are being kept; `switch` is the
+    model switch in progress and `cached` the model repos already downloaded.
     """
-    positions = tuple(
-        MenuItem("setting", p, "indicator_position", p, checked=cfg.indicator_position == p)
-        for p in POSITIONS
-    )
-    modes = tuple(
-        MenuItem("setting", m, "insert_mode", m, checked=cfg.insert_mode == m) for m in INSERT_MODES
+    switch = switch or SwitchState()
+    info = models.BY_REPO.get(cfg.model_repo)
+    size = f" ({models.format_size(info.size_mb)})" if info else ""
+    model_items = tuple(
+        MenuItem("setting", label, "model_repo", repo, checked=repo == cfg.model_repo)
+        for repo, label in model_options(cfg.model_repo, lambda r: r in cached)
     )
     return [
-        MenuItem(
-            "header", "Config error: see log" if error else "murmur is running", enabled=False
-        ),
-        MenuItem("header", cfg.model_repo, enabled=False),
+        MenuItem("header", header_text(switch, error), enabled=False),
+        MenuItem("header", f"Model: {models.short_name(cfg.model_repo)}{size}", enabled=False),
         MenuItem("separator"),
         MenuItem("setting", "Streaming", "stream", not cfg.stream, checked=cfg.stream),
         MenuItem("setting", "Sounds", "sounds", not cfg.sounds, checked=cfg.sounds),
-        MenuItem("submenu", "Overlay position", children=positions),
-        MenuItem(
-            "submenu",
-            "Insert mode (used when streaming is off)",
-            enabled=not cfg.stream,
-            children=modes,
-        ),
-        MenuItem("separator"),
+        MenuItem("submenu", "Model", children=model_items),
+        MenuItem("action", "Settings...", action="settings"),
         MenuItem("action", "Open config file", action="open_config"),
+        MenuItem("separator"),
         MenuItem(
             "action",
             f"Restart to apply changes ({', '.join(sorted(pending))})"

@@ -9,11 +9,13 @@ import time
 from pathlib import Path
 
 from .agent import main_agent
-from .app import Dictation
+from .app import Dictation, State
 from .config import CONFIG_PATH, Config, load_config
 from .host import make_indicator
 from .hotkey import HotkeyListener
 from .inserter import Inserter
+from .models import prepare_offline
+from .modelswitch import MlxLoader, ModelSwitcher
 from .permissions import check_permissions
 from .recorder import Recorder
 from .settings import LiveSettings, restart_now
@@ -43,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
 def run_dictation(cfg: Config, config_path: Path) -> None:
     """Load the model, start the hotkey listener and hand the main thread to the indicator."""
     check_permissions()
+    prepare_offline(cfg.model_repo)  # offline only when the model is cached; else it downloads
     log.info("Loading model %s ...", cfg.model_repo)
     transcriber = Transcriber(cfg)
     t0 = time.monotonic()
@@ -53,7 +56,16 @@ def run_dictation(cfg: Config, config_path: Path) -> None:
         restart_now(lambda: (listener.stop(), recorder.stop()))
 
     live = LiveSettings(config_path, cfg)
-    indicator = make_indicator(live, restart)
+    switcher = ModelSwitcher(
+        cfg,
+        MlxLoader(transcriber.warm_up),
+        transcriber.lock,
+        is_busy=lambda: dictation.state is not State.IDLE,
+        on_commit=live.commit_model,
+        on_failed=live.revert_model,
+    )
+    live.model_hook = switcher.request
+    indicator = make_indicator(live, restart, switcher)
     recorder = Recorder(cfg)
     inserter = Inserter(cfg)
     dictation = Dictation(cfg, recorder, transcriber, inserter, indicator, refresh=live.refresh)

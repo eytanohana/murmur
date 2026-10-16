@@ -56,7 +56,8 @@ def test_snapped_values_always_validate():
         ("min_hold_ms", 1000, "1000 ms"),
         ("stream_interval", 0.5, "0.5 s"),
         ("silence_rms", 0.005, "0.005"),
-        ("stream_holdback_words", 1, "1 words"),
+        ("stream_holdback_words", 1, "1 word"),
+        ("stream_holdback_words", 3, "3 words"),
         ("max_record_s", 120.0, "120 s"),
     ],
 )

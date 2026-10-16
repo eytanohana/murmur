@@ -15,6 +15,12 @@ def live(cfg):
     return LiveSettings(PATH, cfg, stat=lambda p: None)
 
 
+def switcher():
+    from murmur.modelswitch import ModelSwitcher
+
+    return ModelSwitcher(Config(), None, None, lambda: False, lambda *a: None)
+
+
 def kinds(indicator):
     return [type(p) for p in indicator.parts]
 
@@ -32,12 +38,12 @@ def test_overlay_position_comes_from_the_config():
 
 
 def test_icon_next_to_the_pill():
-    ind = make_indicator(live(Config(menubar_icon=True)))
+    ind = make_indicator(live(Config(menubar_icon=True)), switcher=switcher())
     assert kinds(ind) == [Overlay, StatusItem]
 
 
 def test_icon_only_with_indicator_none():
-    ind = make_indicator(live(Config(indicator="none", menubar_icon=True)))
+    ind = make_indicator(live(Config(indicator="none", menubar_icon=True)), switcher=switcher())
     assert kinds(ind) == [StatusItem]
 
 
@@ -49,7 +55,9 @@ def test_the_restart_callback_reaches_the_status_item():
     def restart():
         pass
 
-    item = make_indicator(live(Config(indicator="none", menubar_icon=True)), restart).parts[0]
+    item = make_indicator(
+        live(Config(indicator="none", menubar_icon=True)), restart, switcher()
+    ).parts[0]
     assert item.on_restart is restart and item.live.path == PATH
 
 

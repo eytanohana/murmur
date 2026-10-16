@@ -35,7 +35,8 @@ def snap(setting: Setting, raw: float) -> float | int:
 
 def format_value(setting: Setting, value: float) -> str:
     text = str(int(value)) if setting.integer else f"{value:.{decimals(setting.step)}f}"
-    return f"{text} {setting.unit}" if setting.unit else text
+    unit = "word" if setting.unit == "words" and value == 1 else setting.unit
+    return f"{text} {unit}" if unit else text
 
 
 @dataclass(frozen=True)

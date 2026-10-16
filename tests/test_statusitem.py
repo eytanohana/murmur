@@ -83,3 +83,30 @@ def test_opening_the_menu_with_a_broken_file_shows_the_error_header(item, live):
 def test_unknown_tag_is_ignored(item, live):
     item._on_click(99)
     assert not live.path.exists()
+
+
+def test_the_settings_item_opens_the_window(live):
+    opened = []
+    window = type("W", (), {"show": lambda self: opened.append(1)})()
+    it = statusitem.StatusItem(live, lambda: None, window=window)
+    it._by_tag[1] = MenuItem("action", action="settings")
+    it._on_click(1)
+    assert opened == [1]
+
+
+def test_the_settings_item_without_a_window_does_nothing(live):
+    it = statusitem.StatusItem(live, lambda: None)
+    it._by_tag[1] = MenuItem("action", action="settings")
+    it._on_click(1)  # must not raise
+
+
+def test_a_model_click_goes_to_the_switcher_not_the_file(live):
+    calls = []
+    live.model_hook = lambda repo, from_file: calls.append((repo, from_file))
+    it = statusitem.StatusItem(live, lambda: None)
+    it.menu = type("M", (), {"removeAllItems": lambda self: None})()
+    it._fill = lambda menu, items: None
+    it._by_tag[1] = setting("model_repo", "mlx-community/whisper-base.en-mlx")
+    it._on_click(1)
+    assert calls == [("mlx-community/whisper-base.en-mlx", False)]
+    assert not live.path.exists()
