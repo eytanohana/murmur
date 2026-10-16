@@ -1,0 +1,55 @@
+name: App build
+# Builds murmur.app and the dmg on pull requests that touch what goes into the app, and
+# runs the frozen app's self-check. Cold runs are expected to take a few minutes (uv sync,
+# PyInstaller and dmgbuild); the timeout below is the ceiling. If it ever gets slow, delete
+# the pull_request trigger and the build only runs for releases.
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "src/**"
+      - "packaging/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/app-build.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+env:
+  UV_VERSION: "0.12.10"
+
+jobs:
+  app:
+    name: Build murmur.app (arm64)
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867  # v7
+        with:
+          enable-cache: true
+          version: ${{ env.UV_VERSION }}
+
+      - name: Build murmur.app and the dmg
+        run: ./scripts/build_app.sh
+
+      - name: Check the signature and the disk image
+        run: |
+          codesign --verify --deep --strict dist/murmur.app
+          plutil -lint dist/murmur.app/Contents/Info.plist
+          hdiutil imageinfo dist/murmur-*-arm64.dmg > /dev/null
+
+      - name: Frozen self-check (starts the bundled app, loads a tiny model, transcribes a clip)
+        run: |
+          HOME_DIR="$(mktemp -d)"
+          mkdir -p "$HOME_DIR/.config/murmur"
+          printf 'model_repo = "mlx-community/whisper-tiny.en-mlx"\n' > "$HOME_DIR/.config/murmur/config.toml"
+          uv run python -c "import wave; w = wave.open('$HOME_DIR/silence.wav', 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(bytes(32000)); w.close()"
+          HOME="$HOME_DIR" HF_HOME="$HOME_DIR/hf" MURMUR_SELFTEST_WAV="$HOME_DIR/silence.wav" \
+            MURMUR_SELFTEST_HOLD=1 dist/murmur.app/Contents/MacOS/murmur | tee "$HOME_DIR/out.txt"
+          grep -q "SELFTEST transcript" "$HOME_DIR/out.txt"
