@@ -64,14 +64,28 @@ def test_menubar_icon_is_wired_to_the_status_item_as_a_live_hook():
     assert lv.key_hooks["menubar_icon"] == ind.parts[0].enable
 
 
-def test_the_restart_callback_reaches_the_status_item():
-    def restart():
-        pass
+def test_the_restart_callback_reaches_the_status_item_and_is_blocked_while_uninstalling():
+    calls = []
+    host = make_indicator(
+        live(Config(indicator="none")), lambda: calls.append("restart"), switcher()
+    )
+    item = host.parts[0]
+    assert item.live.path == PATH
+    item.on_restart()
+    assert calls == ["restart"]
+    host.uninstall.running = True  # the app is removing itself: never relaunch
+    item.on_restart()
+    host.window.on_restart()
+    assert calls == ["restart"]
 
-    item = make_indicator(
-        live(Config(indicator="none", menubar_icon=True)), restart, switcher()
-    ).parts[0]
-    assert item.on_restart is restart and item.live.path == PATH
+
+def test_uninstall_is_wired_to_the_menu_item_and_the_settings_button():
+    host = make_indicator(live(Config(indicator="none")), switcher=switcher())
+    assert host.parts[0].on_uninstall == host.uninstall.start == host.window.on_uninstall
+
+
+def test_without_a_switcher_there_is_nothing_to_uninstall_from():
+    assert make_indicator(live(Config(indicator="none"))).uninstall is None
 
 
 def test_host_fans_state_out_to_every_part():

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
+import stat
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,6 +79,58 @@ def is_cached(repo: str, cache_dir: str | Path | None = None) -> bool:
     except Exception:  # noqa: BLE001  not cached, partial, or the cache dir is unreadable
         return False
     return (path / "config.json").exists() and any((path / f).exists() for f in WEIGHT_FILES)
+
+
+@dataclass(frozen=True)
+class CachedModel:
+    repo: str
+    name: str
+    path: Path  # the repo's folder in the Hugging Face cache
+    size_bytes: int
+
+
+def cache_folder(repo: str, cache_dir: str | Path | None = None) -> Path:
+    """The Hugging Face cache folder of one repo (`models--org--name`)."""
+    if cache_dir is None:
+        from huggingface_hub import constants
+
+        cache_dir = constants.HF_HUB_CACHE
+    return Path(cache_dir) / ("models--" + repo.replace("/", "--"))
+
+
+def folder_size(path: Path) -> int:
+    """Bytes of the regular files under `path`. Symlinks (snapshots point at blobs) are
+    not followed, so nothing is counted twice or from outside the folder."""
+    total = 0
+    for root, _dirs, files in os.walk(path, followlinks=False):
+        for name in files:
+            try:
+                st = os.lstat(os.path.join(root, name))
+            except OSError:
+                continue
+            if stat.S_ISREG(st.st_mode):
+                total += st.st_size
+    return total
+
+
+def curated_cache(cache_dir: str | Path | None = None) -> list[CachedModel]:
+    """The catalog's models that have a folder in the cache. Other repos are never listed."""
+    found = []
+    for info in CATALOG:
+        folder = cache_folder(info.repo, cache_dir)
+        if folder.is_dir() and not folder.is_symlink():
+            found.append(CachedModel(info.repo, info.name, folder, folder_size(folder)))
+    return found
+
+
+def format_bytes(n: int) -> str:
+    if n < 1000:
+        return f"{n} B"
+    if n < 1_000_000:
+        return f"{n / 1000:.0f} KB"
+    if n < 1_000_000_000:
+        return f"{n / 1_000_000:.0f} MB"
+    return f"{n / 1_000_000_000:.1f} GB"
 
 
 def set_offline(flag: bool) -> None:

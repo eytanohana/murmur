@@ -39,6 +39,8 @@ class Host:
         self.show_settings_on_start = False  # first launch: a short welcome where to grant access
         self.open_scope: str | None = None  # notification object: the instance lock path
         self.is_busy: Callable[[], bool] = lambda: False  # True while a dictation is running
+        self.stop_everything: Callable[[], None] = lambda: None  # listener and recorder
+        self.uninstall = None  # the UninstallController, when there is a switcher
 
     def set(self, state: str) -> None:
         for part in self.parts:
@@ -119,6 +121,7 @@ def make_indicator(
     if cfg.indicator == "overlay":
         parts.append(Overlay(cfg))
     window = None
+    item = None
     if switcher is not None:
         from .settingswindow import SettingsWindow
         from .statusitem import StatusItem
@@ -127,4 +130,26 @@ def make_indicator(
         item = StatusItem(live, on_restart, switcher, window)
         live.key_hooks["menubar_icon"] = item.enable
         parts.append(item)
-    return Host(parts, window)
+    host = Host(parts, window)
+    if switcher is not None:
+        from .uninstallui import UninstallController
+
+        def begin_uninstall_ui() -> None:
+            """Answer the confirmation at once: close Settings, hide the icon and the pill."""
+            window.close_window()
+            item.set_enabled(False)
+            for part in parts:
+                part.set("idle")
+
+        controller = UninstallController(
+            switcher,
+            lambda: host.is_busy(),
+            lambda: host.stop_everything(),
+            begin_ui=begin_uninstall_ui,
+        )
+        host.uninstall = controller
+        item.on_uninstall = window.on_uninstall = controller.start
+        # Restart must not relaunch the app while it is uninstalling itself.
+        guarded = on_restart
+        item.on_restart = window.on_restart = lambda: None if controller.running else guarded()
+    return host

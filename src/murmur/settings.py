@@ -73,6 +73,7 @@ def build_menu(
     switch: SwitchState | None = None,
     cached: Collection[str] = (),
     launch_login: bool = False,
+    uninstall: bool = False,
 ) -> list[MenuItem]:
     """The compact menu for the live `cfg`.
 
@@ -118,6 +119,7 @@ def build_menu(
             action="restart",
             checked=bool(pending),
         ),
+        *([MenuItem("action", "Uninstall murmur...", action="uninstall")] if uninstall else []),
         MenuItem("action", "Quit murmur", action="quit"),
     ]
 

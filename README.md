@@ -21,7 +21,15 @@ Only one copy runs: starting murmur while it is already running (including the d
 
 **Ad-hoc signing limits.** macOS ties the permissions to the app's code signature. An ad-hoc signature changes with every build, so after installing a new version macOS may show the permission prompts again, or show murmur as already enabled while it no longer works; turn murmur off and on in the three lists (or remove it with the minus button and add it back) and choose Restart murmur. Gatekeeper also asks again for a new download. A Developer ID signature and notarization would remove both; this project does not have one.
 
-**Uninstall.** Quit murmur from the menu bar icon, drag murmur from Applications to the Trash, and delete `~/.config/murmur` and `~/Library/Logs/murmur.log`. Remove murmur from the three Privacy lists if you like, and turn off Launch at login first (it also removes the fallback LaunchAgent). The downloaded models stay in `~/.cache/huggingface` (delete the `models--mlx-community--whisper-*` folders to reclaim the space).
+**Uninstall.** Choose "Uninstall murmur..." from the menu bar icon (between Restart and Quit) or press the small "Uninstall murmur..." button at the bottom left of the Settings window. Both exist only in the app, not in a source checkout. A warning asks first and lists what it does; nothing happens until you press Uninstall (Cancel is the default). It refuses while you are dictating or a model is loading.
+
+- Always: turns off launch at login (the login item and the `com.eytanohana.murmur.login` LaunchAgent plist), removes the developer LaunchAgent `com.user.murmur` if you installed it (stops it first so it cannot restart the app), resets murmur's Microphone, Accessibility and Input Monitoring permissions (`tccutil reset All com.eytanohana.murmur`), moves murmur.app to the Trash and quits.
+- Checkbox, on by default: also delete your settings and log (`~/.config/murmur` and `~/Library/Logs/murmur.log`, with their size).
+- Checkbox, off by default: also delete the downloaded models. The Hugging Face cache is shared with other tools, so only the cache folders of the models in murmur's own list are removed (shown with their sizes and total), never the whole cache and never other models.
+
+As soon as you confirm, the Settings window closes, the menu bar icon is hidden and a small "Uninstalling murmur..." panel names the step in progress. The time each step takes is written to `~/Library/Logs/murmur-uninstall.log`, which is kept unless you tick the first checkbox (the alert says so); a step that hangs is abandoned after 30 seconds. Each step is run separately; one that fails is logged and does not stop the rest, and the app is moved to the Trash last. If murmur cannot trash itself (for example it sits in a folder you cannot write to), it tells you the path and you drag it to the Trash yourself.
+
+Manual fallback, if the app does not start: quit murmur, drag murmur from Applications to the Trash, delete `~/.config/murmur` and `~/Library/Logs/murmur.log`, delete `~/Library/LaunchAgents/com.eytanohana.murmur.login.plist` if it exists, run `tccutil reset All com.eytanohana.murmur`, and remove murmur from Login Items in System Settings. The models stay in `~/.cache/huggingface/hub` (delete the `models--mlx-community--whisper-*` folders to reclaim the space).
 
 ## Build from source
 
