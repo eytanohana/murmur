@@ -77,6 +77,7 @@ src/murmur/
   feedback.py     sounds
   indicator.py    overlay pill and menu bar item
   agent.py        LaunchAgent plist and launchctl commands
+  permissions.py  startup permission checks and prompts (Accessibility, Input Monitoring, mic)
 tests/            pytest (fakes in helpers.py, fixtures in conftest.py); unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
 ```
 

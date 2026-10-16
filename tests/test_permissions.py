@@ -2,7 +2,7 @@ from unittest import mock
 
 import numpy as np
 
-from murmur import __main__ as cli
+from murmur import permissions
 
 
 class FakeStream:
@@ -21,16 +21,16 @@ class FakeStream:
 def run_check(stream_factory, caplog):
     with (
         mock.patch("sounddevice.InputStream", stream_factory),
-        mock.patch.object(cli.time, "sleep"),
+        mock.patch.object(permissions.time, "sleep"),
         caplog.at_level("WARNING", logger="murmur"),
     ):
-        cli.check_microphone()
+        permissions.check_microphone()
 
 
 def test_silent_microphone_warns_with_binary_path(caplog):
     run_check(lambda **kw: FakeStream(np.zeros((160, 1), dtype=np.float32), **kw), caplog)
     assert "only silence" in caplog.text
-    assert str(cli.real_python(cli.Path(cli.sys.executable))) in caplog.text
+    assert str(permissions.real_python(permissions.Path(permissions.sys.executable))) in caplog.text
 
 
 def test_live_microphone_is_quiet(caplog):
