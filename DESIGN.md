@@ -59,7 +59,7 @@ Both modes post Quartz keyboard events (`CGEventPost`), not pynput's `Controller
 ## Feedback
 
 - Start and stop sounds using the system sounds in `/System/Library/Sounds` (`afplay`, non-blocking). `sounds` defaults to false because the macOS mic indicator shows recording. The start sound plays when the hold threshold passes, the stop sound on release.
-- Recording indicator, `indicator = "overlay" | "menubar" | "none"` (default overlay), because a LaunchAgent gets no macOS mic indicator. The overlay is a borderless, click-through, non-activating NSPanel pill (red dot and "REC") below the menu bar and notch, on all Spaces; it appears after the hold threshold, shows "..." during the final pass and hides. The menu bar item (`rumps`) shows idle, recording and transcribing but cannot be shown when macOS hides it for lack of space. AppKit owns the main thread (accessory activation policy) and dictation runs on other threads; SIGTERM and SIGINT stop the run loop with exit status 0. No sounds unless `sounds` is on.
+- Recording indicator, `indicator = "overlay" | "none"` (default overlay), because a LaunchAgent gets no macOS mic indicator. The overlay is a borderless, click-through, non-activating NSPanel pill (red dot and "REC") below the menu bar and notch, on all Spaces; it appears after the hold threshold, shows "..." during the final pass and hides. An optional native menu bar icon (`menubar_icon`, off by default) shows that murmur is running (`mic`, `mic.fill` while recording) and offers a settings menu; macOS hides status items when the bar is full. AppKit owns the main thread (accessory activation policy) and dictation runs on other threads; SIGTERM and SIGINT stop the run loop with exit status 0. No sounds unless `sounds` is on.
 
 ## Architecture
 
@@ -75,7 +75,11 @@ src/murmur/
   audio.py        pure audio helpers: RMS, silence detection, edge trimming, buffer cut point
   streaming.py    stable-prefix commit logic and the per-utterance Streamer
   feedback.py     sounds
-  indicator.py    overlay pill and menu bar item
+  indicator.py    overlay pill and the Indicator protocol
+  host.py         the one AppKit run loop (main thread) hosting the pill and the status item
+  statusitem.py   native menu bar icon and menu (AppKit)
+  settings.py     menu model, tomlkit config writes, restart plan, icon names (no display needed)
+  mainthread.py   hop onto the AppKit main thread
   agent.py        LaunchAgent plist and launchctl commands
   permissions.py  startup permission checks and prompts (Accessibility, Input Monitoring, mic)
 tests/            pytest (fakes in helpers.py, fixtures in conftest.py); unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
@@ -92,10 +96,14 @@ Notes:
 
 `murmur install-agent`, `uninstall-agent` and `agent-status` manage a LaunchAgent (`com.user.murmur`) built by `agent.py`. It runs the venv python directly so the privacy permission target is one stable binary, restarts only after a non-zero exit, logs to `~/Library/Logs/murmur.log` and sets `HF_HUB_OFFLINE=1`. Permissions attach to the resolved python binary when there is no terminal; the app requests the prompts at startup and names the binary in warnings. See the README for idle cost and the re-grant steps after a Python upgrade.
 
+## Menu bar icon and settings menu
+
+`menubar_icon = true` adds an NSStatusItem to the same NSApplication run loop the pill uses (`host.py` owns the loop; the pill and the status item are parts). The menu is rendered from a pure model in `settings.py`; clicking a setting validates it with the config validators and writes only that key with tomlkit (comments and other keys survive, write goes through a temp file). Settings apply after a restart, which is `launchctl kickstart -k` under launchd and a re-exec of the original interpreter arguments otherwise, after stopping the listener and recorder. Quit is a clean exit, so the LaunchAgent stays stopped.
+
 ## Tooling
 
 - Python managed by uv: `uv init`, `uv add`, `uv run`. Pin Python 3.12 via `.python-version`.
-- Dependencies: `mlx-whisper`, `sounddevice`, `numpy`, `pynput`, `pyobjc-framework-Quartz` if needed, `rumps` (optional extra). Dev: `pytest`, `ruff`.
+- Dependencies: `mlx-whisper`, `sounddevice`, `numpy`, `pynput`, `pyobjc-framework-Quartz` if needed, `tomlkit` (writes settings from the menu bar menu). Dev: `pytest`, `ruff`.
 - `uv.lock` is committed. `.venv/`, `__pycache__/`, model caches are git ignored.
 - `ffmpeg` is not required if audio is passed to mlx-whisper as a numpy array; avoid the dependency.
 

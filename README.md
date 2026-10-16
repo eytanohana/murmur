@@ -28,10 +28,29 @@ The app prints a warning at startup for Accessibility and Input Monitoring if th
 The macOS mic indicator does not appear for a LaunchAgent, so the app draws its own. Set `indicator` in the config (default `"overlay"`):
 
 - `overlay`: a small dark pill with a red dot and "REC" at the top center of the main screen, just below the menu bar and notch. It appears when the 1 s hold threshold passes (not at key down), shows an orange dot and "..." while the final pass runs, then hides. It is a borderless non-activating panel at status window level on all Spaces; it ignores the mouse and never takes focus, so typing continues in the app you are using. No sounds. `indicator_position` moves it: `top-center`, `top-left`, `top-right`, `bottom-center`, `bottom-left`, `bottom-right`.
-- `menubar`: a text item ("mic", "REC", "...") in the menu bar via rumps (`uv sync --extra menubar`). It permanently uses menu bar space, and macOS hides status items that do not fit next to the notch. On the development Mac the item was created but macOS did not put it on screen because the bar was full, which is why the overlay is the default.
-- `none`: no indicator.
+- `none`: no pill. Combine it with `menubar_icon = true` for a menu bar icon only.
 
-AppKit runs on the main thread and dictation on other threads. The app uses the accessory activation policy, so there is no Dock icon. On startup the menu bar variant activates once (a rumps default). SIGTERM and Ctrl+C end the app with exit status 0 under both indicators. After changing `indicator` under the agent, run `launchctl kickstart -k gui/$(id -u)/com.user.murmur`.
+AppKit runs on the main thread and dictation on other threads. The app uses the accessory activation policy, so there is no Dock icon. SIGTERM and Ctrl+C end the app with exit status 0 with or without the icon. After changing `indicator` under the agent, restart as described in the menu bar icon section.
+
+## Menu bar icon
+
+Experimental and off by default, because the menu bar may be full. Set `menubar_icon = true` in the config. It adds a native status item that only says murmur is running: a microphone symbol (`mic`), which becomes `mic.fill` while recording, from the same moment the pill appears. It is a template image, so it follows light and dark menu bars. It works with `indicator = "none"` for an icon without the pill. The icon stays `mic` during the final pass; the pill shows "...".
+
+On a Mac with a notch, macOS hides status items that do not fit. On the development Mac the bar was full, the item was created but macOS did not draw it, and it only appeared once there was room. If the icon is missing, remove or Cmd-drag another icon to make space.
+
+Click the icon for the menu:
+
+- "murmur is running" and the model name (disabled lines).
+- Streaming and Sounds toggles with checkmarks; Overlay position and Insert mode submenus with a checkmark on the current value.
+- Open config file: creates `~/.config/murmur/config.toml` (or the `--config` path) with a short commented header when it is missing, then opens it with `open -t`.
+- Restart to apply changes: enabled and checked once something changed.
+- Quit murmur.
+
+Changing a setting validates the value and writes just that key to the config file with tomlkit, so your comments and other keys stay. Settings apply after a restart; the menu keeps showing the pending values.
+
+**Restart.** Under the LaunchAgent (detected by `XPC_SERVICE_NAME` equal to the job label) it runs `launchctl kickstart -k gui/<uid>/com.user.murmur`. In a terminal it stops the hotkey listener and the recorder, then re-executes the same interpreter with the original arguments (`python -m murmur ...` or the `murmur` script) in the same process, so two copies never run. Limits: the re-exec is only for runs outside launchd; a failure to exec is not retried and shows up in the log. A restart reloads the model, so the app is deaf for the few seconds that takes. Both paths were exercised with a status item in a scratch run (the process kept its PID across the re-exec), but not with a real Option key press.
+
+**Quit** exits with status 0. The LaunchAgent restarts only after a crash, so a quit stays quit until you start it again: `launchctl kickstart gui/$(id -u)/com.user.murmur` (or log in again).
 
 ## Run at login
 
@@ -101,7 +120,8 @@ Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown
 | `stream_trim_s` | `20` | Buffer length that triggers a trim at the last committed word |
 | `stream_min_speech_s` | `0.3` | New speech needed to run a pass |
 | `stream_flush_silence_s` | `0.7` | Pause that flushes held-back words and the unsettled tail while Option is held |
-| `indicator` | `"overlay"` | `"overlay"`, `"menubar"` or `"none"` |
+| `indicator` | `"overlay"` | `"overlay"` or `"none"` |
+| `menubar_icon` | `false` | Show the menu bar icon and settings menu |
 | `indicator_position` | `"top-center"` | Overlay position |
 
 ## Pause flush
@@ -160,4 +180,4 @@ murmur is released under the MIT License (see `LICENSE`).
 
 It runs [OpenAI Whisper](https://github.com/openai/whisper) models (code and weights are MIT licensed) through [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) (MIT), using the `mlx-community/whisper-large-v3-turbo` conversion from Hugging Face. The model is downloaded at first run and is not bundled with this package.
 
-Other dependencies keep their own licenses: pynput (LGPL-3.0), sounddevice (MIT), numpy (BSD), PyObjC (MIT) and rumps (BSD, optional).
+Other dependencies keep their own licenses: pynput (LGPL-3.0), sounddevice (MIT), numpy (BSD), PyObjC (MIT) and tomlkit (MIT).
