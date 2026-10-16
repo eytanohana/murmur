@@ -11,7 +11,7 @@ def test_rms_of_empty_and_constant():
 
 def test_silent_clip_skips_model():
     class T(Transcriber):
-        def _run(self, audio):
+        def _decode(self, *args, **kwargs):
             raise AssertionError("model must not run on silence")
 
     assert T("repo", silence_rms=0.005).transcribe(np.zeros(16000, dtype=np.float32)) == ""
@@ -27,8 +27,8 @@ def test_silent_clip_gives_no_words_and_skips_the_model():
 
 def test_loud_clip_runs_model_and_cleans():
     class T(Transcriber):
-        def _run(self, audio):
-            return "  hello "
+        def _decode(self, *args, **kwargs):
+            return {"text": "  hello "}
 
     assert T("repo").transcribe(np.full(16000, 0.1, dtype=np.float32)) == "hello"
 

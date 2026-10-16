@@ -22,9 +22,6 @@ class Transcriber:
         self.language = language
         self.silence_rms = silence_rms
 
-    def _run(self, audio: np.ndarray) -> str:
-        return self._decode(audio)["text"]
-
     def _decode(
         self, audio: np.ndarray, word_timestamps: bool = False, initial_prompt: str | None = None
     ) -> dict:
@@ -44,7 +41,7 @@ class Transcriber:
     def warm_up(self, sample_rate: int = 16000) -> None:
         """Download (first run) and load the model by transcribing 1 s of silence."""
         silence = np.zeros(sample_rate, dtype=np.float32)
-        self._run(silence)
+        self._decode(silence)
         self._decode(silence, word_timestamps=True)
 
     def transcribe(self, audio: np.ndarray) -> str:
@@ -52,7 +49,7 @@ class Transcriber:
         clip_rms = rms(audio)
         if clip_rms < self.silence_rms:
             return ""
-        return self._run(audio).strip()
+        return self._decode(audio)["text"].strip()
 
     def transcribe_words(
         self, audio: np.ndarray, initial_prompt: str | None = None, timestamps: bool = True
