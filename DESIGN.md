@@ -94,7 +94,7 @@ Notes:
 
 ## Run at login
 
-`murmur install-agent`, `uninstall-agent` and `agent-status` manage a LaunchAgent (`com.user.murmur`) built by `agent.py`. It runs the venv python directly so the privacy permission target is one stable binary, restarts only after a non-zero exit, logs to `~/Library/Logs/murmur.log` and sets `HF_HUB_OFFLINE=1`. Permissions attach to the resolved python binary when there is no terminal; the app requests the prompts at startup and names the binary in warnings. See the README for idle cost and the re-grant steps after a Python upgrade.
+`murmur install-agent`, `uninstall-agent` and `agent-status` manage a LaunchAgent (`com.user.murmur`) built by `agent.py`. It runs the venv python directly so the privacy permission target is one stable binary, restarts only after a non-zero exit, logs to `~/Library/Logs/murmur.log` and does not set `HF_HUB_OFFLINE` (the app goes offline only when the model is cached). Permissions attach to the resolved python binary when there is no terminal; the app requests the prompts at startup and names the binary in warnings. See the README for idle cost and the re-grant steps after a Python upgrade.
 
 ## Menu bar icon and settings menu
 

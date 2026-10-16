@@ -41,6 +41,8 @@ def test_plist_contents(tmp_path):
     log = str(tmp_path / "Library" / "Logs" / "murmur.log")
     assert data["StandardOutPath"] == data["StandardErrorPath"] == log
     assert data["EnvironmentVariables"]["PATH"].startswith("/proj/.venv/bin:")
+    # offline mode is decided by the app (cached model), not forced by the plist
+    assert "HF_HUB_OFFLINE" not in data["EnvironmentVariables"]
     plistlib.dumps(data)  # serializes
 
 

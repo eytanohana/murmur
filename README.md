@@ -64,7 +64,7 @@ uv run murmur agent-status
 uv run murmur uninstall-agent
 ```
 
-`install-agent` writes `~/Library/LaunchAgents/com.user.murmur.plist` and runs `launchctl bootstrap gui/$UID`. The agent runs `.venv/bin/python -m murmur` directly (not `uv run`) from the project folder, with `RunAtLoad`, `ProcessType Interactive`, and `KeepAlive` set to restart only after a crash (non-zero exit); a clean exit or Ctrl+C-style stop stays stopped. `HF_HUB_OFFLINE=1` is set so login does not need the network; run the app once in a terminal after changing `model_repo` so the new model is downloaded. `--no-start` writes the plist without running launchctl.
+`install-agent` writes `~/Library/LaunchAgents/com.user.murmur.plist` and runs `launchctl bootstrap gui/$UID`. The agent runs `.venv/bin/python -m murmur` directly (not `uv run`) from the project folder, with `RunAtLoad`, `ProcessType Interactive`, and `KeepAlive` set to restart only after a crash (non-zero exit); a clean exit or Ctrl+C-style stop stays stopped. The plist does not set `HF_HUB_OFFLINE`; see Offline behavior below. `--no-start` writes the plist without running launchctl.
 
 **Logs:** `tail -f ~/Library/Logs/murmur.log` (stdout and stderr, including permission warnings).
 
