@@ -1,6 +1,6 @@
 import pytest
 
-from murmur.config import POSITIONS, load_config
+from murmur.config import INDICATORS, INSERT_MODES, OPTION_KEYS, POSITIONS, load_config
 
 
 def write(tmp_path, text):
@@ -61,3 +61,21 @@ def test_invalid_settings_are_rejected(tmp_path, line):
 def test_unknown_key_error_names_the_key(tmp_path):
     with pytest.raises(ValueError, match="bogus"):
         load_config(write(tmp_path, "bogus = 1\n"))
+
+
+@pytest.mark.parametrize(
+    ("key", "values"),
+    [
+        ("option_keys", OPTION_KEYS),
+        ("indicator", INDICATORS),
+        ("insert_mode", INSERT_MODES),
+    ],
+)
+def test_every_documented_choice_is_accepted(tmp_path, key, values):
+    for value in values:
+        assert getattr(load_config(write(tmp_path, f'{key} = "{value}"\n')), key) == value
+
+
+def test_choice_error_lists_the_valid_values(tmp_path):
+    with pytest.raises(ValueError, match="option_keys must be 'left', 'right' or 'both'"):
+        load_config(write(tmp_path, 'option_keys = "middle"\n'))

@@ -6,6 +6,9 @@ import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
 
+OPTION_KEYS = ("left", "right", "both")
+INDICATORS = ("none", "menubar", "overlay")
+INSERT_MODES = ("paste", "type")
 POSITIONS = ("top-center", "top-left", "top-right", "bottom-center", "bottom-left", "bottom-right")
 CONFIG_PATH = Path.home() / ".config" / "murmur" / "config.toml"
 
@@ -43,6 +46,12 @@ class Config:
     stream_flush_silence_s: float = 0.7
 
 
+def check_choice(key: str, value: str, valid: tuple[str, ...]) -> None:
+    if value not in valid:
+        options = ", ".join(repr(v) for v in valid[:-1]) + f" or {valid[-1]!r}"
+        raise ValueError(f"{key} must be {options}")
+
+
 def load_config(path: Path | None = None) -> Config:
     """Load config from TOML. Missing file gives defaults; unknown keys raise."""
     path = path or CONFIG_PATH
@@ -57,14 +66,10 @@ def load_config(path: Path | None = None) -> Config:
         raise ValueError(f"Unknown config keys in {path}: {sorted(unknown)}")
     for key, value in data.items():
         setattr(cfg, key, value)
-    if cfg.option_keys not in ("left", "right", "both"):
-        raise ValueError("option_keys must be 'left', 'right' or 'both'")
     if cfg.menubar:
         cfg.indicator = "menubar"
-    if cfg.indicator not in ("none", "menubar", "overlay"):
-        raise ValueError("indicator must be 'none', 'menubar' or 'overlay'")
-    if cfg.indicator_position not in POSITIONS:
-        raise ValueError(f"indicator_position must be one of {POSITIONS}")
-    if cfg.insert_mode not in ("paste", "type"):
-        raise ValueError("insert_mode must be 'paste' or 'type'")
+    check_choice("option_keys", cfg.option_keys, OPTION_KEYS)
+    check_choice("indicator", cfg.indicator, INDICATORS)
+    check_choice("indicator_position", cfg.indicator_position, POSITIONS)
+    check_choice("insert_mode", cfg.insert_mode, INSERT_MODES)
     return cfg

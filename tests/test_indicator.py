@@ -1,4 +1,5 @@
-from murmur.indicator import NullIndicator, Overlay, make_indicator, overlay_origin
+from murmur.config import INDICATORS
+from murmur.indicator import FACTORIES, NullIndicator, Overlay, make_indicator, overlay_origin
 
 FRAME = (0.0, 0.0, 1800.0, 1169.0)
 VISIBLE = (0.0, 76.0, 1800.0, 1056.0)  # Dock at the bottom, menu bar and notch at the top
@@ -26,3 +27,7 @@ def test_make_indicator_kinds():
 
 def test_overlay_set_before_run_is_ignored():
     Overlay().set("recording")  # no panel yet; must not raise or touch AppKit
+
+
+def test_every_valid_indicator_setting_has_a_factory():
+    assert set(FACTORIES) == set(INDICATORS)

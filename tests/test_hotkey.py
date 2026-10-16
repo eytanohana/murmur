@@ -2,7 +2,8 @@ import threading
 
 from pynput.keyboard import Key, KeyCode
 
-from murmur.hotkey import HotkeyListener
+from murmur.config import OPTION_KEYS
+from murmur.hotkey import OPTION_KEY_SETS, HotkeyListener
 
 A = KeyCode.from_char("a")
 
@@ -118,3 +119,7 @@ def test_a_failing_callback_does_not_kill_the_worker(caplog):
     assert "Hotkey callback failed" in caplog.text
     h._queue.put(None)
     worker.join(2)
+
+
+def test_every_valid_option_keys_setting_has_a_key_set():
+    assert set(OPTION_KEY_SETS) == set(OPTION_KEYS)

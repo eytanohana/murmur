@@ -205,9 +205,13 @@ def install_signal_handlers(stop: Callable[[], None]) -> None:
         signal.signal(sig, lambda *_: stop())
 
 
-def make_indicator(kind: str, position: str = "top-center"):
-    if kind == "overlay":
-        return Overlay(position)
-    if kind == "menubar":
-        return MenubarIndicator()
-    return NullIndicator()
+# Keyed by the valid indicator values in config.INDICATORS.
+FACTORIES: dict[str, Callable[[str], Indicator]] = {
+    "overlay": Overlay,
+    "menubar": lambda _position: MenubarIndicator(),
+    "none": lambda _position: NullIndicator(),
+}
+
+
+def make_indicator(kind: str, position: str = "top-center") -> Indicator:
+    return FACTORIES[kind](position)

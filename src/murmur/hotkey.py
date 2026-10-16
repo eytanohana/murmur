@@ -25,12 +25,12 @@ RIGHT = keyboard.Key.alt_r
 GENERIC = keyboard.Key.alt
 
 
-def option_keys_for(setting: str) -> set:
-    if setting == "left":
-        return {LEFT, GENERIC}
-    if setting == "right":
-        return {RIGHT}
-    return {LEFT, RIGHT, GENERIC}
+# Keyed by the valid option_keys values in config.OPTION_KEYS.
+OPTION_KEY_SETS = {
+    "left": frozenset({LEFT, GENERIC}),
+    "right": frozenset({RIGHT}),
+    "both": frozenset({LEFT, RIGHT, GENERIC}),
+}
 
 
 class HotkeyListener:
@@ -44,7 +44,7 @@ class HotkeyListener:
         self._on_press = on_press
         self._on_release = on_release
         self._on_other_key = on_other_key
-        self._keys = option_keys_for(option_keys)
+        self._keys = OPTION_KEY_SETS[option_keys]
         self._held: set = set()
         self._dispatch: Callable[[Callable[[], None]], None] = lambda fn: fn()
         self._queue: queue.Queue = queue.Queue()
