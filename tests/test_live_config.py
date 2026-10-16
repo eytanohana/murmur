@@ -31,6 +31,7 @@ def test_every_key_is_live_or_restart_never_both():
         "min_hold_ms",
         "max_record_s",
         "silence_rms",
+        "launch_at_login",
         "option_keys",
         "insert_mode",
         "paste_restore_delay_ms",

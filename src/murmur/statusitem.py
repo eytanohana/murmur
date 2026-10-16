@@ -12,6 +12,8 @@ import subprocess
 from collections.abc import Callable
 
 from . import models
+from .frozen import is_frozen
+from .launchlogin import agent_installed
 from .mainthread import main_thread
 from .modelswitch import ModelSwitcher
 from .settings import (
@@ -97,7 +99,14 @@ class StatusItem:
         self.menu.removeAllItems()
         state = self.switcher.state if self.switcher else None
         cached = {m.repo for m in models.CATALOG if models.is_cached(m.repo)}
-        items = build_menu(self.live.cfg, list(self.live.pending), self.live.error, state, cached)
+        items = build_menu(
+            self.live.cfg,
+            list(self.live.pending),
+            self.live.error,
+            state,
+            cached,
+            launch_login=is_frozen() and not agent_installed(),
+        )
         self._fill(self.menu, items)
 
     def _fill(self, menu, items) -> None:

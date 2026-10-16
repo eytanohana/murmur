@@ -47,7 +47,13 @@ class RowState:
     is_default: bool
 
 
-def row_state(setting: Setting, cfg: Config, pending: Collection[str]) -> RowState:
+def row_state(
+    setting: Setting,
+    cfg: Config,
+    pending: Collection[str],
+    frozen: bool = True,
+    agent_installed: bool = False,
+) -> RowState:
     enabled, note = True, ""
     if setting.when is not None:
         key, wanted = setting.when
@@ -55,6 +61,15 @@ def row_state(setting: Setting, cfg: Config, pending: Collection[str]) -> RowSta
             enabled, note = False, setting.when_note
     if setting.key == "language" and models.is_english_only(cfg.model_repo):
         enabled, note = False, "The current model is English only, so it always uses en."
+    if setting.key == "launch_at_login":
+        if not frozen:
+            enabled, note = False, "Available in the murmur.app build."
+        elif agent_installed:
+            enabled = False
+            note = (
+                "The LaunchAgent com.user.murmur is installed. Run `murmur uninstall-agent` "
+                "first, so two copies do not start at login."
+            )
     return RowState(
         enabled=enabled,
         note=note,

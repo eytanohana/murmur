@@ -94,6 +94,13 @@ SCHEMA: tuple[Setting, ...] = (
         step=0.001,
     ),
     Setting(
+        "launch_at_login",
+        "Launch at login",
+        "Start murmur when you log in. Only in the murmur.app build.",
+        "General",
+        TOGGLE,
+    ),
+    Setting(
         "sample_rate",
         "Sample rate",
         "Whisper needs 16 kHz audio, so this cannot change.",

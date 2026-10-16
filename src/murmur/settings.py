@@ -72,6 +72,7 @@ def build_menu(
     error: str | None = None,
     switch: SwitchState | None = None,
     cached: Collection[str] = (),
+    launch_login: bool = False,
 ) -> list[MenuItem]:
     """The compact menu for the live `cfg`.
 
@@ -92,6 +93,19 @@ def build_menu(
         MenuItem("separator"),
         MenuItem("setting", "Streaming", "stream", not cfg.stream, checked=cfg.stream),
         MenuItem("setting", "Sounds", "sounds", not cfg.sounds, checked=cfg.sounds),
+        *(
+            [
+                MenuItem(
+                    "setting",
+                    "Launch at login",
+                    "launch_at_login",
+                    not cfg.launch_at_login,
+                    checked=cfg.launch_at_login,
+                )
+            ]
+            if launch_login
+            else []
+        ),
         MenuItem("submenu", "Model", children=model_items),
         MenuItem("action", "Settings...", action="settings"),
         MenuItem("action", "Open config file", action="open_config"),
@@ -208,6 +222,8 @@ class LiveSettings:
         # (repo, from_file): a model_repo change is not applied here; the model switcher loads
         # the model first and calls commit_model once it is ready.
         self.model_hook: Callable[[str, bool], None] | None = None
+        # key -> callback(new value), run after a live key changes (for example launch at login)
+        self.key_hooks: dict[str, Callable[[object], object]] = {}
         self.pending: dict[str, object] = {}  # RESTART keys whose file value differs
         self.error: str | None = None  # set while the file on disk is invalid
         self._stat = stat
@@ -219,7 +235,10 @@ class LiveSettings:
                 self.model_hook(value, from_file)
             return
         if key in LIVE_KEYS:
+            changed = getattr(self.cfg, key) != value
             setattr(self.cfg, key, value)
+            if changed and key in self.key_hooks:
+                self.key_hooks[key](value)
         elif value != getattr(self.cfg, key):
             self.pending[key] = value
         else:

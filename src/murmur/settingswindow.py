@@ -9,6 +9,8 @@ from collections.abc import Callable
 
 from . import models
 from .config import Config
+from .frozen import is_frozen
+from .launchlogin import agent_installed
 from .mainthread import main_thread
 from .modelswitch import ModelSwitcher
 from .settings import LiveSettings
@@ -404,7 +406,7 @@ class SettingsWindow:
     def _update_row(self, row: Row, cfg: Config, pending, state) -> None:
         s = row.setting
         value = getattr(cfg, s.key)
-        rs = row_state(s, cfg, pending)
+        rs = row_state(s, cfg, pending, is_frozen(), agent_installed())
         ctl = row.control
         if s.kind == TOGGLE:
             ctl.setState_(1 if value else 0)

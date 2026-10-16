@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import selftest
+from . import launchlogin, selftest
 from .agent import main_agent
 from .app import Dictation, State
 from .config import CONFIG_PATH, Config, load_config
@@ -93,6 +93,7 @@ def run_dictation(cfg: Config, config_path: Path, lock_path: Path | None = None)
         on_failed=live.revert_model,
     )
     live.model_hook = switcher.request
+    live.key_hooks["launch_at_login"] = launchlogin.apply
     indicator = make_indicator(live, restart, switcher)
     recorder = Recorder(cfg)
     inserter = Inserter(cfg)
