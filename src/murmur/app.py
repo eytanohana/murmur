@@ -57,7 +57,7 @@ class Dictation:
         recorder: Recorder,
         transcriber: Transcriber,
         inserter: Inserter,
-        status: Indicator | None = None,
+        indicator: Indicator | None = None,
         clock: Callable[[], float] = time.monotonic,
         run_async: bool = True,
         sound: Callable[[str], None] = play_sound,
@@ -67,7 +67,7 @@ class Dictation:
         self.recorder = recorder
         self.transcriber = transcriber
         self.inserter = inserter
-        self.status = status or NullIndicator()
+        self.indicator = indicator or NullIndicator()
         self.clock = clock
         self.run_async = run_async
         self.sound = sound
@@ -85,7 +85,7 @@ class Dictation:
         # The indicator shows "recording" only once the hold threshold passes
         # (see _threshold_passed), not at key down.
         if state is not State.RECORDING:
-            self.status.set(state.value)
+            self.indicator.set(state.value)
 
     def on_press(self) -> None:
         with self._lock:
@@ -119,7 +119,7 @@ class Dictation:
         with self._lock:
             if self.state is not State.RECORDING or press_id != self._press_id:
                 return
-        self.status.set("recording")
+        self.indicator.set("recording")
         if self.cfg.sounds:
             self.sound(self.cfg.start_sound)
 

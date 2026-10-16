@@ -90,7 +90,7 @@ def test_transcriber_error_returns_to_idle(make_dictation):
     r.d.on_press()
     hold(r, 1.0)
     assert r.d.state is State.IDLE
-    assert r.status.states[-1] == "idle"
+    assert r.indicator.states[-1] == "idle"
 
 
 def test_recorder_failure_leaves_the_machine_idle(make_dictation, caplog):
@@ -133,11 +133,11 @@ def test_tap_never_plays_the_start_sound(make_dictation):
 def test_indicator_shows_recording_only_after_the_threshold(make_dictation):
     r = make_dictation()
     r.d.on_press()
-    assert r.status.states == []
+    assert r.indicator.states == []
     r.schedule.fire()
-    assert r.status.states == ["recording"]
+    assert r.indicator.states == ["recording"]
     hold(r, 1.0)
-    assert r.status.states == ["recording", "transcribing", "idle"]
+    assert r.indicator.states == ["recording", "transcribing", "idle"]
 
 
 def test_stale_threshold_timer_from_a_tap_does_not_light_the_next_recording(make_dictation):
@@ -146,9 +146,9 @@ def test_stale_threshold_timer_from_a_tap_does_not_light_the_next_recording(make
     hold(r, 0.2)  # tap
     r.d.on_press()  # a second press starts a new recording
     r.schedule.fire(0)  # the first press's timer fires during the second press
-    assert "recording" not in r.status.states
+    assert "recording" not in r.indicator.states
     r.schedule.fire(1)
-    assert r.status.states.count("recording") == 1
+    assert r.indicator.states.count("recording") == 1
 
 
 def test_combo_cancel_after_the_threshold_hides_the_indicator(make_dictation):
@@ -156,7 +156,7 @@ def test_combo_cancel_after_the_threshold_hides_the_indicator(make_dictation):
     r.d.on_press()
     r.schedule.fire()
     r.d.on_other_key()
-    assert r.status.states == ["recording", "idle"]
+    assert r.indicator.states == ["recording", "idle"]
 
 
 def test_streaming_release_types_the_tail(make_dictation):

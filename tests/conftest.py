@@ -10,7 +10,7 @@ from helpers import (
     FakeTranscriber,
     ManualClock,
     ManualScheduler,
-    RecordingStatus,
+    RecordingIndicator,
     ScriptedTranscriber,
 )
 from murmur.app import Dictation
@@ -24,7 +24,7 @@ def make_dictation():
 
     def build(text: str = "hello world", recorder: FakeRecorder | None = None, **cfg):
         cfg.setdefault("stream", False)
-        clock, schedule, status = ManualClock(), ManualScheduler(), RecordingStatus()
+        clock, schedule, indicator = ManualClock(), ManualScheduler(), RecordingIndicator()
         rec = recorder or FakeRecorder()
         tr, ins, sounds = FakeTranscriber(text), FakeInserter(), []
         dictation = Dictation(
@@ -32,7 +32,7 @@ def make_dictation():
             rec,
             tr,
             ins,
-            status,
+            indicator,
             clock=clock,
             run_async=False,
             sound=sounds.append,
@@ -42,7 +42,7 @@ def make_dictation():
             d=dictation,
             clock=clock,
             schedule=schedule,
-            status=status,
+            indicator=indicator,
             rec=rec,
             tr=tr,
             ins=ins,

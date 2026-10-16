@@ -123,7 +123,7 @@ class ManualScheduler:
         self.pending[index][1]()
 
 
-class RecordingStatus:
+class RecordingIndicator:
     def __init__(self):
         self.states: list[str] = []
 
