@@ -40,8 +40,10 @@ On a Mac with a notch, macOS hides status items that do not fit. On the developm
 
 Click the icon for the menu:
 
-- "murmur is running" (or "Config error: see log" when the file on disk is invalid) and the model name, as disabled lines.
-- Streaming and Sounds toggles with checkmarks; Overlay position and Insert mode submenus with a checkmark on the current value. The Insert mode submenu is greyed out while Streaming is on, because it only matters when streaming is off.
+- A status line ("murmur is running", "Loading <model> 42%...", "Model load failed: see log" or "Config error: see log") and the current model, as disabled lines.
+- Streaming and Sounds toggles with checkmarks.
+- Model: a submenu with a checkmark on the current model; each entry shows its size, language scope and whether it is already downloaded.
+- Settings...: opens the settings window (below).
 - Open config file: creates `~/.config/murmur/config.toml` (or the `--config` path) with a short commented header when it is missing, then opens it with `open -t`.
 - "Restart murmur", which becomes "Restart to apply changes (keys)" and is checked when a restart-only key was changed in the file.
 - Quit murmur.
@@ -51,6 +53,34 @@ Changing a setting validates the value and writes just that key to the config fi
 **Restart.** Under the LaunchAgent (detected by `XPC_SERVICE_NAME` equal to the job label) it runs `launchctl kickstart -k gui/<uid>/com.user.murmur`. In a terminal it stops the hotkey listener and the recorder, then re-executes the same interpreter with the original arguments (`python -m murmur ...` or the `murmur` script) in the same process, so two copies never run. Limits: the re-exec is only for runs outside launchd; a failure to exec is not retried and shows up in the log. A restart reloads the model, so the app is deaf for the few seconds that takes. Both paths were exercised with a status item in a scratch run (the process kept its PID across the re-exec), but not with a real Option key press.
 
 **Quit** exits with status 0. The LaunchAgent restarts only after a crash, so a quit stays quit until you start it again: `launchctl kickstart gui/$(id -u)/com.user.murmur` (or log in again).
+
+## Settings window
+
+Settings... in the menu bar menu opens one window, "murmur Settings", with a tab per group: General (hotkey, hold time, longest recording, silence threshold, sample rate), Streaming, Output (insert mode, clipboard delay), Feedback (sounds with a picker and Play button for each system sound, the pill, its position, the menu bar icon) and Model. Every setting has a label, a one-line help text, and a control that fits it: a switch, a slider with the live value and unit, a stepper, a popup or a text field. The ranges come from one schema, for example hold time 0 to 3000 ms and pass interval 0.2 to 3.0 s, and the config file is checked against the same ranges.
+
+A change is validated, written to the config file with tomlkit and applied at once, like a menu click. Settings that cannot apply live (sample rate, the pill on or off, the menu bar icon) show an orange "Restart needed" badge with a Restart now button. A Reset button appears next to any value that differs from its default, and Reset all (with a confirmation) restores every default. Insert mode and the clipboard delay are greyed out while streaming is on, the sound pickers while Sounds is off and Language while an English-only model is loaded, each with the reason under the control. The window re-reads the config file when it regains focus, and closing it hands focus back to the app you were typing in.
+
+## Models
+
+The Model tab and the Model submenu list models that were checked against the Hugging Face API for existence and size and loaded with mlx_whisper:
+
+| Model | Size | Languages | Notes |
+| --- | --- | --- | --- |
+| tiny.en | 74 MB | English | fastest, least accurate |
+| base.en | 144 MB | English | |
+| small.en | 481 MB | English | |
+| medium.en | 1525 MB | English | |
+| large-v3 turbo | 1614 MB | multilingual | default |
+| large-v3 | 3084 MB | multilingual | slowest, most accurate |
+| distil large-v3 | 1509 MB | English | output has no punctuation or capitals |
+
+The 4-bit and 8-bit turbo conversions are not listed: they ship `model.safetensors`, which the installed mlx_whisper cannot load. You can still put any other `mlx-community` Whisper repo in `model_repo`; it works if mlx_whisper can load it, and the dropdown shows it as "(custom)".
+
+**Switching without a restart.** Picking a model downloads it if needed (with progress in the Model tab and "Loading ..." in the menu header) and loads it on a background thread while the current model keeps serving. The swap happens under the transcriber lock and only between dictations; if you are dictating when the load finishes, it waits for the release. The config file changes only after the load succeeded. If anything fails the old model stays, the error shows in the Model tab and the log, and a hand-edited `model_repo` in the file is put back. The old weights are freed and the MLX cache cleared. Switching to an English-only model sets `language = "en"`; the Language control is disabled for those models.
+
+In a scratch run with the real models (temp Hugging Face cache, `HF_HUB_OFFLINE=1` exported to imitate an old plist), switching from turbo to tiny.en took 2.1 s including the 74 MB download, small.en 7.9 s including 481 MB, turbo again 1.5 s from cache and base.en 3.3 s. Resident memory went from 2086 MB (turbo) to 565 MB (tiny.en) after the swap, and the test clip transcribed correctly after every swap.
+
+**Offline behavior.** At startup murmur goes offline only when the configured model is already in the Hugging Face cache, so logging in without a network still works. If the model is not cached it downloads it. The LaunchAgent plist no longer sets `HF_HUB_OFFLINE`. If you installed the agent with an older version, its plist still exports `HF_HUB_OFFLINE=1`; that keeps working, because startup and model switches turn offline mode off before they download. Run `murmur install-agent` again whenever you like to write the new plist.
 
 ## Run at login
 
@@ -68,7 +98,7 @@ uv run murmur uninstall-agent
 
 **Logs:** `tail -f ~/Library/Logs/murmur.log` (stdout and stderr, including permission warnings).
 
-**After editing the config:** nothing for most keys, they apply on the next Option press. After changing `model_repo`, `language`, `sample_rate`, `indicator` or `menubar_icon`: `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
+**After editing the config:** nothing for most keys, they apply on the next Option press. After changing `sample_rate`, `indicator` or `menubar_icon`: `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
 
 **Permissions:** with no terminal attached, macOS attributes the permissions to the Python binary itself, not to your terminal. `install-agent` prints its path after installing, with symlinks resolved (for example `~/.local/share/uv/python/cpython-3.12.x-macos-aarch64-none/bin/python3.12`). In System Settings > Privacy & Security add that binary to Accessibility, Input Monitoring and Microphone (click +, press Cmd+Shift+G, paste the path), then run the kickstart command above. At startup the app requests the prompts for itself and warns in the log, naming the binary, when Accessibility or Input Monitoring is missing or the microphone returns only silence.
 
@@ -100,14 +130,14 @@ Streaming is on by default. While Option is held, the buffer is re-transcribed a
 
 ## Config
 
-Changes to the file apply on the next Option press, no restart needed. murmur checks the file's modification time once when you press Option (and when the menu bar menu opens) and only re-reads it when that changed. A key press picks up the new values for that dictation and they stay fixed until it ends. Only `model_repo`, `language`, `sample_rate`, `indicator` and `menubar_icon` need a restart; murmur logs them as pending and the menu names them. If the file is invalid, murmur keeps the previous settings, logs one warning per change and shows "Config error: see log" in the menu.
+Changes to the file apply on the next Option press, no restart needed. murmur checks the file's modification time once when you press Option (and when the menu bar menu opens) and only re-reads it when that changed. A key press picks up the new values for that dictation and they stay fixed until it ends. Only `sample_rate`, `indicator` and `menubar_icon` need a restart (`model_repo` loads the new model in the background and `language` applies at once); murmur logs them as pending and the menu names them. If the file is invalid, murmur keeps the previous settings, logs one warning per change and shows "Config error: see log" in the menu.
 
 Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown keys and values of the wrong type (for example `min_hold_ms = "1000"`) stop the app at startup with an error naming the key.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `model_repo` | `mlx-community/whisper-large-v3-turbo` | Hugging Face MLX Whisper repo |
-| `language` | `"en"` | Forced language |
+| `model_repo` | `mlx-community/whisper-large-v3-turbo` | Hugging Face MLX Whisper repo; a change loads the new model in the background |
+| `language` | `"en"` | Forced language; English-only models always use en |
 | `min_hold_ms` | `1000` | Minimum hold to count |
 | `max_record_s` | `120` | Maximum recording length |
 | `silence_rms` | `0.005` | RMS below this counts as silence |
@@ -161,13 +191,7 @@ Text is typed with Quartz keyboard events (flags cleared, 20 UTF-16 units per ev
 
 ## Swapping the model
 
-Set `model_repo` in the config file, for example:
-
-```
-model_repo = "mlx-community/whisper-medium.en-mlx"
-```
-
-Any `mlx-community` Whisper repo works. `language` is passed through, so set it to match multilingual models or leave `"en"` for English.
+Use the Model submenu or the Model tab, or set `model_repo` in the config file; murmur loads it in the background, see Models above. A repo outside the list works if mlx_whisper can load it. Set `language` to match multilingual models or leave `"en"` for English.
 
 ## Development
 

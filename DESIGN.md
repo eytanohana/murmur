@@ -78,7 +78,12 @@ src/murmur/
   indicator.py    overlay pill and the Indicator protocol
   host.py         the one AppKit run loop (main thread) hosting the pill and the status item
   statusitem.py   native menu bar icon and menu (AppKit)
-  settings.py     menu model, tomlkit config writes, restart plan, icon names (no display needed)
+  settings_schema.py  every setting once: label, help, group, kind, range, live or restart; validation derives from it
+  settings.py     menu model, LiveSettings (live Config, tomlkit writes), restart plan, icon names
+  settings_view.py  view-model helpers for the window and menu (no AppKit)
+  settingswindow.py  the native settings window (AppKit)
+  models.py       curated model list, cache detection, offline switch
+  modelswitch.py  background model download, load and swap (no display needed)
   mainthread.py   hop onto the AppKit main thread
   agent.py        LaunchAgent plist and launchctl commands
   permissions.py  startup permission checks and prompts (Accessibility, Input Monitoring, mic)
@@ -99,6 +104,14 @@ Notes:
 ## Menu bar icon and settings menu
 
 `menubar_icon = true` adds an NSStatusItem to the same NSApplication run loop the pill uses (`host.py` owns the loop; the pill and the status item are parts). The menu is rendered from a pure model in `settings.py`; clicking a setting validates it with the config validators and writes only that key with tomlkit (comments and other keys survive, write goes through a temp file). Settings apply on the next Option press: `LiveSettings` keeps the one live Config and does a single stat of the file at key down (before the recorder starts and the per-dictation snapshot is taken) and when the menu opens, re-reading only when the mtime moved; its own writes update the remembered mtime. `config.RESTART_KEYS` (`model_repo`, `language`, `sample_rate`, `indicator`, `menubar_icon`) stay pending until a restart, which is `launchctl kickstart -k` under launchd and a re-exec of the original interpreter arguments otherwise, after stopping the listener and recorder. An invalid file keeps the old values and is flagged in the menu header. The insert mode submenu is disabled while streaming is on, since streamed chunks are always typed. Quit is a clean exit, so the LaunchAgent stays stopped.
+
+## Settings schema and window
+
+`settings_schema.py` describes all 21 keys once (label, help, group, control kind, unit, range, step, choices, live or restart, an optional enabling condition). The config file, menu writes and the window validate through it; `config.Config` supplies the defaults. Only `sample_rate`, `indicator` and `menubar_icon` are restart-only. The settings window (`settingswindow.py`, one NSTabView tab per group) builds a row per schema entry and writes through `LiveSettings`, so a change validates, lands in the file and applies on the next Option press. Rows that do not apply are disabled with the reason, restart-only rows get a badge and a Restart now button, and a Reset button shows only for non-default values.
+
+## Models and live switching
+
+`models.py` holds the curated list (tiny.en, base.en, small.en, medium.en, large-v3 turbo, large-v3, distil large-v3; each verified against the Hugging Face API and loaded with mlx_whisper 0.4.x, which only reads `weights.safetensors` or `weights.npz`). `ModelSwitcher` downloads and loads a new model on a background thread while the old one keeps serving, then swaps under the transcriber lock and only between dictations by setting mlx_whisper's `ModelHolder`; the config value and file change only after a successful load, a failure keeps the old model, and the old weights and MLX cache are released. Switching to an English-only model sets `language = "en"`. At startup murmur goes offline only when the configured model is cached; an explicit switch lifts offline mode for its download, so an older plist that exports `HF_HUB_OFFLINE=1` still works.
 
 ## Tooling
 
