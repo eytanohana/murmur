@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import sys
 import tomllib
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -15,6 +16,7 @@ import tomlkit
 from . import models
 from .agent import LABEL, service_target
 from .config import LIVE_KEYS, Config, load_config, validate_setting
+from .frozen import bundle_path, is_frozen
 from .modelswitch import SwitchState
 from .settings_view import header_text, model_options
 
@@ -24,6 +26,15 @@ CONFIG_HEADER = (
 )
 
 log = logging.getLogger("murmur")
+
+FIRST_RUN_CONFIG = (
+    "# murmur config, created on first launch. Every key is optional; see the README.\n"
+    "# Changes apply on the next Option press (a few keys need a restart).\n"
+    "#\n"
+    "# The menu bar icon is the app's only visible presence, and its menu holds Settings and\n"
+    "# Quit, so it starts on. Set it to false to hide it (edit the file to bring it back).\n"
+    "menubar_icon = true\n"
+)
 
 ICON_IDLE = "mic"
 ICON_RECORDING = "mic.fill"
@@ -105,6 +116,15 @@ def ensure_config_file(path: Path) -> Path:
     return path
 
 
+def write_first_run_config(path: Path) -> bool:
+    """Create the config for a first launch of the app. Returns True when it was written."""
+    if path.exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(FIRST_RUN_CONFIG)
+    return True
+
+
 def write_setting(path: Path, key: str, value: object) -> None:
     """Validate and write one key, keeping the file's comments, order and other keys."""
     validate_setting(key, value)
@@ -116,26 +136,51 @@ def write_setting(path: Path, key: str, value: object) -> None:
     os.replace(tmp, path)  # a crash mid-write cannot leave a half-written config
 
 
+def relaunch_command(bundle: Path, pid: int) -> list[str]:
+    """Wait for `pid` to exit, then open a new instance of the app.
+
+    Opening first would start a second copy while the first still holds the instance
+    lock, and the new one would quit. Waiting guarantees exactly one copy afterwards.
+    """
+    script = (
+        f"while kill -0 {pid} 2>/dev/null; do sleep 0.2; done; "
+        f"/usr/bin/open -n {shlex.quote(str(bundle))}"
+    )
+    return ["/bin/sh", "-c", script]
+
+
 def restart_plan(
-    environ: Mapping[str, str], executable: str, orig_argv: Sequence[str]
+    environ: Mapping[str, str],
+    executable: str,
+    orig_argv: Sequence[str],
+    bundle: Path | None = None,
+    pid: int = 0,
 ) -> tuple[str, list[str]]:
-    """How to restart: ("launchctl", cmd) under the LaunchAgent, else ("exec", argv).
+    """How to restart: relaunch the app bundle, kickstart the LaunchAgent, or re-exec.
 
     launchd sets XPC_SERVICE_NAME to the job label. Re-exec replays the original
     interpreter arguments, so `python -m murmur` and the `murmur` script both work.
     """
+    if bundle is not None:
+        return "relaunch", relaunch_command(bundle, pid)
     if environ.get("XPC_SERVICE_NAME") == LABEL:
         return "launchctl", ["launchctl", "kickstart", "-k", service_target()]
     return "exec", [executable, *orig_argv[1:]]
 
 
 def restart_now(stop_everything) -> None:  # pragma: no cover - replaces the process
-    """Stop the listener and recorder, then restart through launchd or by re-exec."""
+    """Stop the listener and recorder, then restart through the bundle, launchd or re-exec."""
     import subprocess
 
-    how, command = restart_plan(os.environ, sys.executable, sys.orig_argv)
+    bundle = bundle_path() if is_frozen() else None
+    how, command = restart_plan(os.environ, sys.executable, sys.orig_argv, bundle, os.getpid())
     stop_everything()
-    if how == "launchctl":
+    if how == "relaunch":
+        subprocess.Popen(command, start_new_session=True)  # outlives this process
+        import AppKit
+
+        AppKit.NSApp.terminate_(None)
+    elif how == "launchctl":
         subprocess.Popen(command)  # kickstart -k stops this process and starts a new one
     else:
         os.execv(command[0], command)

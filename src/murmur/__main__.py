@@ -5,20 +5,24 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 
+from . import selftest
 from .agent import main_agent
 from .app import Dictation, State
 from .config import CONFIG_PATH, Config, load_config
+from .frozen import is_frozen
 from .host import make_indicator
 from .hotkey import HotkeyListener
 from .inserter import Inserter
+from .instance import InstanceLock
 from .models import prepare_offline
 from .modelswitch import MlxLoader, ModelSwitcher
 from .permissions import check_permissions
 from .recorder import Recorder
-from .settings import LiveSettings, restart_now
+from .settings import LiveSettings, restart_now, write_first_run_config
 from .transcriber import Transcriber
 
 log = logging.getLogger("murmur")
@@ -42,9 +46,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_dictation(cfg: Config, config_path: Path) -> None:
+def setup_logging(verbose: bool, log_file: Path | None) -> None:
+    """Log to stderr; the app has no terminal, so it also appends to ~/Library/Logs."""
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if log_file is not None:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(log_file))
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s %(message)s",
+        datefmt="%H:%M:%S",
+        handlers=handlers,
+    )
+
+
+def run_dictation(cfg: Config, config_path: Path, lock_path: Path | None = None) -> None:
     """Load the model, start the hotkey listener and hand the main thread to the indicator."""
-    check_permissions()
+    lock = InstanceLock(lock_path or config_path.parent / "murmur.lock")
+    if not lock.acquire():
+        log.warning("murmur is already running (pid %s); this copy exits", lock.holder_pid())
+        return
+    selftest_wav = selftest.requested()
+    if not selftest_wav:
+        check_permissions()
     prepare_offline(cfg.model_repo)  # offline only when the model is cached; else it downloads
     log.info("Loading model %s ...", cfg.model_repo)
     transcriber = Transcriber(cfg)
@@ -70,7 +94,10 @@ def run_dictation(cfg: Config, config_path: Path) -> None:
     inserter = Inserter(cfg)
     dictation = Dictation(cfg, recorder, transcriber, inserter, indicator, refresh=live.refresh)
     listener = HotkeyListener(dictation.on_press, dictation.on_release, dictation.on_other_key, cfg)
-    listener.start()
+    if selftest_wav:
+        threading.Thread(target=selftest.run, args=(selftest_wav, transcriber), daemon=True).start()
+    else:
+        listener.start()
     log.info(
         "Ready. Hold Option (%s) for %.1f s, speak, release. Indicator: %s. Ctrl+C to quit.",
         cfg.option_keys,
@@ -84,6 +111,7 @@ def run_dictation(cfg: Config, config_path: Path) -> None:
         pass
     finally:
         listener.stop()
+        lock.release()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -92,12 +120,12 @@ def main(argv: list[str] | None = None) -> None:
     if args.command:
         sys.exit(main_agent(args.command, args))
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    frozen = is_frozen()
+    log_file = Path.home() / "Library" / "Logs" / "murmur.log" if frozen else None
+    setup_logging(args.verbose, log_file)
     config_path = Path(args.config) if args.config else CONFIG_PATH
+    if frozen and not args.config and write_first_run_config(config_path):
+        log.info("First launch: wrote %s with the menu bar icon on", config_path)
     cfg = load_config(config_path)
 
     run_dictation(cfg, config_path)
