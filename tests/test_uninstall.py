@@ -22,7 +22,7 @@ from murmur.uninstall import (
 )
 
 HOME = Path("/Users/someone")
-BUNDLE = Path("/Applications/murmur.app")
+BUNDLE = Path("/fake-apps/murmur.app")  # never a real path: no test needs an installed app
 
 
 def make_ctx(**kw):
@@ -39,6 +39,17 @@ def make_ctx(**kw):
     }
     defaults.update(kw)
     return Context(**defaults)
+
+
+@pytest.fixture(autouse=True)
+def fake_bundle_ids(monkeypatch):
+    """Reading an Info.plist is replaced: no test depends on a real app being installed."""
+    real = uninstall.bundle_id_of
+    monkeypatch.setattr(
+        uninstall,
+        "bundle_id_of",
+        lambda p: uninstall.BUNDLE_ID if Path(p) == BUNDLE else real(p),
+    )
 
 
 def kinds(plan):
@@ -104,7 +115,7 @@ def test_only_the_known_paths_may_be_deleted():
         HOME / ".config" / "murmur" / ".." / "other",
         Path("relative/murmur"),
         HOME / "hub" / "models--a--*",  # no globbing
-        Path("/Applications/murmur.app"),
+        Path("/fake-apps/murmur.app"),
     ],
 )
 def test_anything_else_is_refused(path):
@@ -125,14 +136,41 @@ def test_execute_refuses_a_delete_step_that_was_not_planned_from_known_paths():
 def test_the_trash_target_must_be_the_running_murmur_app():
     ok = uninstall.check_trash_target(BUNDLE, BUNDLE, lambda p: uninstall.BUNDLE_ID)
     assert ok is None
-    other = Path("/Applications/Safari.app")
+    other = Path("/fake-apps/Safari.app")
     assert "not the running app" in uninstall.check_trash_target(other, BUNDLE, lambda p: "x")
     assert "not the running app" in uninstall.check_trash_target(BUNDLE, None, lambda p: "x")
-    notapp = Path("/Applications/murmur")
+    notapp = Path("/fake-apps/murmur")
     assert "not an .app" in uninstall.check_trash_target(
         notapp, notapp, lambda p: uninstall.BUNDLE_ID
     )
     assert "bundle id" in uninstall.check_trash_target(BUNDLE, BUNDLE, lambda p: "com.other.app")
+
+
+def test_a_bundle_with_the_wrong_id_is_never_trashed(tmp_path):
+    """A fake .app in tmp_path whose Info.plist names another app: refused, nothing trashed."""
+    app = tmp_path / "Apps" / "murmur.app"
+    (app / "Contents").mkdir(parents=True)
+    (app / "Contents" / "Info.plist").write_bytes(
+        plistlib.dumps({"CFBundleIdentifier": "com.other.app"})
+    )
+    ctx = make_ctx(bundle=app)
+    trashed = []
+    ops = SystemOperations(ctx, trash_fn=trashed.append)
+    with pytest.raises(PermissionError, match="bundle id is not com.eytanohana.murmur"):
+        ops.trash(app)
+    results = uninstall.execute(uninstall.build_plan(ctx, Choices()), FakeOps(), ctx)
+    refused = [r for r in results if r.step.kind == TRASH]
+    assert refused[0].ok is False and "bundle id" in refused[0].message
+    assert trashed == []  # and the other steps still ran
+    assert all(r.ok for r in results if r.step.kind != TRASH)
+
+
+def test_a_bundle_whose_info_plist_is_missing_is_never_trashed(tmp_path):
+    app = tmp_path / "murmur.app"
+    app.mkdir()
+    ctx = make_ctx(bundle=app)
+    with pytest.raises(PermissionError, match="bundle id"):
+        SystemOperations(ctx, trash_fn=lambda p: None).trash(app)
 
 
 def test_bundle_id_is_read_from_info_plist(tmp_path):

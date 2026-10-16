@@ -119,14 +119,15 @@ def bundle_id_of(bundle: Path) -> str | None:
 def check_trash_target(
     path: Path,
     running_bundle: Path | None,
-    read_bundle_id: Callable[[Path], str | None] = bundle_id_of,
+    read_bundle_id: Callable[[Path], str | None] | None = None,
 ) -> str | None:
     """None when `path` is the running murmur.app, else why it must not be trashed."""
     if running_bundle is None or path != running_bundle:
         return f"refusing to trash {path}: it is not the running app"
     if path.suffix != ".app":
         return f"refusing to trash {path}: not an .app"
-    if read_bundle_id(path) != BUNDLE_ID:
+    read = read_bundle_id or bundle_id_of  # looked up at call time, so tests can replace it
+    if read(path) != BUNDLE_ID:
         return f"refusing to trash {path}: its bundle id is not {BUNDLE_ID}"
     return None
 

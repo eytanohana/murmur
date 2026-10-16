@@ -10,7 +10,18 @@ from murmur.models import CachedModel
 from murmur.modelswitch import ModelSwitcher, SwitchState
 from murmur.uninstall import Choices, Context
 
-BUNDLE = Path("/Applications/murmur.app")
+BUNDLE = Path("/fake-apps/murmur.app")  # never a real path: no test needs an installed app
+
+
+@pytest.fixture(autouse=True)
+def fake_bundle_ids(monkeypatch):
+    """Reading an Info.plist is replaced: no test depends on a real app being installed."""
+    real = uninstall.bundle_id_of
+    monkeypatch.setattr(
+        uninstall,
+        "bundle_id_of",
+        lambda p: uninstall.BUNDLE_ID if Path(p) == BUNDLE else real(p),
+    )
 
 
 def make_ctx(**kw):
