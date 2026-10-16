@@ -254,7 +254,9 @@ class LiveSettings:
         """Validate, write and apply one setting. Raises ValueError or OSError."""
         if key == "model_repo" and self.model_hook is not None:
             validate_setting(key, value)
-            self._apply(key, value)  # the file is written by commit_model after the load
+            # The file is written by commit_model after the load. The hook is always called,
+            # so picking the configured model again retries a first load that failed.
+            self.model_hook(value, False)
             return
         write_setting(self.path, key, value)
         self._seen = self._stat(self.path)  # our own write: do not reload it

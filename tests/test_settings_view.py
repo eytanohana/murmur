@@ -127,7 +127,7 @@ def test_model_status_text_for_each_state():
 
 def test_header_text_priority():
     assert view.header_text(SwitchState(), None) == "murmur is running"
-    assert view.header_text(SwitchState("loading", EN, 0.5), None) == "Loading tiny.en 50%..."
+    assert view.header_text(SwitchState("loading", EN, 0.5), None) == "Downloading tiny.en 50%..."
     assert view.header_text(SwitchState("loading", EN, None), None) == "Loading tiny.en..."
     assert "Switching to tiny.en" in view.header_text(SwitchState("waiting", EN), None)
     assert view.header_text(SwitchState("failed", EN), None) == "Model load failed: see log"
@@ -141,3 +141,14 @@ def test_changed_from_defaults_lists_only_changes_with_the_model_last():
     assert keys[-1] == "model_repo"
     assert dict(view.changed_from_defaults(cfg))["language"] == "en"
     assert view.changed_from_defaults(Config()) == []
+
+
+def test_a_failed_first_load_asks_for_a_retry_instead_of_naming_an_old_model():
+    cfg = Config(model_repo=OLD)
+    state = SwitchState("failed", OLD, error="offline")
+    text = view.model_status_text(cfg, state, ready=False)
+    assert (
+        "Could not load large-v3 turbo: offline" in text
+        and "Choose the model again to retry" in text
+    )
+    assert "Still using" not in text

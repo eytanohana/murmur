@@ -33,8 +33,11 @@ def read_wav(path: str) -> np.ndarray:
     return raw.astype(np.float32) / 32768
 
 
-def run(wav: str, transcriber, environ=os.environ) -> None:
-    """Thread body: transcribe, report, wait, then ask the app to quit."""
+def run(wav: str, transcriber, ready=lambda: True, environ=os.environ) -> None:
+    """Thread body: wait for the model, transcribe, report, wait, then ask the app to quit."""
+    deadline = time.monotonic() + 900
+    while not ready() and time.monotonic() < deadline:
+        time.sleep(0.2)
     try:
         text = transcriber.transcribe(read_wav(wav))
         log.info("SELFTEST transcript: %s", text)

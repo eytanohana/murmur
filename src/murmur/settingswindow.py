@@ -423,7 +423,7 @@ class SettingsWindow:
             shown = state.target if state.busy and state.target else value
             self._fill_popup(ctl, row.options, shown)
             bar, label = row.extra
-            label.setStringValue_(model_status_text(cfg, state))
+            label.setStringValue_(model_status_text(cfg, state, self.switcher.ready))
             bar.setHidden_(not state.busy)
             if state.busy:
                 determinate = state.progress is not None

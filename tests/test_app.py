@@ -236,3 +236,15 @@ def test_a_failing_refresh_never_blocks_dictation(make_dictation, caplog):
         r.d.on_press()
     assert r.d.state is State.RECORDING and r.rec.started == 1
     assert "Config refresh failed" in caplog.text
+
+
+def test_option_is_ignored_until_the_model_is_ready(make_dictation, caplog):
+    r = make_dictation()
+    r.d.ready = lambda: False
+    with caplog.at_level(logging.INFO, logger="murmur"):
+        r.d.on_press()
+    assert r.rec.started == 0 and r.d.state is State.IDLE
+    assert "before the model finished loading" in caplog.text
+    r.d.ready = lambda: True
+    r.d.on_press()
+    assert r.rec.started == 1

@@ -241,3 +241,54 @@ def test_progress_class_counts_only_byte_bars():
     with cls(total=3, unit="it") as bar:
         bar.update(1)
     assert seen == [40]
+
+
+# ---- the first load of a session ------------------------------------------------------
+
+
+def test_the_first_load_runs_in_the_background_and_does_not_rewrite_the_config():
+    rig = Rig()
+    rig.loader.gate.clear()
+    rig.switcher.start_initial(OLD)
+    for _ in range(300):
+        if ("load", OLD) in rig.loader.calls:
+            break
+        threading.Event().wait(0.01)
+    assert rig.switcher.ready is False  # still loading: dictation must wait
+    assert rig.switcher.state.status == LOADING and rig.switcher.state.target == OLD
+    rig.loader.gate.set()
+    rig.switcher.join(5)
+    assert rig.switcher.ready is True and rig.switcher.state.status == IDLE
+    assert ("install", OLD) in rig.loader.calls and ("warm_up",) in rig.loader.calls
+    assert rig.committed == []  # the configured model was already the live value
+
+
+def test_a_failed_first_download_stays_not_ready_with_the_error_and_can_be_retried():
+    rig = Rig()
+    rig.loader.fail_download = OSError("offline")
+    rig.switcher.start_initial(OLD)
+    rig.switcher.join(5)
+    assert rig.switcher.ready is False
+    assert rig.switcher.state.status == FAILED and "offline" in rig.switcher.state.error
+    assert rig.failed == [(OLD, OLD, False)]
+    rig.loader.fail_download = None
+    rig.switcher.request(OLD)  # choosing the configured model again retries
+    rig.switcher.join(5)
+    assert rig.switcher.ready is True and rig.switcher.state.status == IDLE
+
+
+def test_choosing_another_model_after_a_failed_first_load_makes_the_app_ready():
+    rig = Rig()
+    rig.loader.fail_download = OSError("offline")
+    rig.switcher.start_initial(OLD)
+    rig.switcher.join(5)
+    rig.loader.fail_download = None
+    rig.run(EN)
+    assert rig.switcher.ready is True and rig.committed == [(EN, None)]
+
+
+def test_a_failed_switch_later_does_not_make_a_running_app_not_ready():
+    rig = Rig()
+    rig.loader.fail_load = ValueError("bad weights")
+    rig.run(MULTI)
+    assert rig.switcher.ready is True  # the old model keeps serving

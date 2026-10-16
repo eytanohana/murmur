@@ -69,12 +69,16 @@ def run_dictation(cfg: Config, config_path: Path, lock_path: Path | None = None)
     selftest_wav = selftest.requested()
     if not selftest_wav:
         check_permissions()
-    prepare_offline(cfg.model_repo)  # offline only when the model is cached; else it downloads
-    log.info("Loading model %s ...", cfg.model_repo)
+    cached = prepare_offline(cfg.model_repo)  # offline only when the model is cached
     transcriber = Transcriber(cfg)
-    t0 = time.monotonic()
-    transcriber.warm_up(cfg.sample_rate)
-    log.info("Model loaded and warmed in %.1fs", time.monotonic() - t0)
+    # A cached model loads in a few seconds before the app shows. An uncached one downloads
+    # in the background with progress in the menu, so the app is never silent while it waits.
+    background_load = not cached
+    if not background_load:
+        log.info("Loading model %s ...", cfg.model_repo)
+        t0 = time.monotonic()
+        transcriber.warm_up(cfg.sample_rate)
+        log.info("Model loaded and warmed in %.1fs", time.monotonic() - t0)
 
     def restart() -> None:
         restart_now(lambda: (listener.stop(), recorder.stop()))
@@ -92,12 +96,26 @@ def run_dictation(cfg: Config, config_path: Path, lock_path: Path | None = None)
     indicator = make_indicator(live, restart, switcher)
     recorder = Recorder(cfg)
     inserter = Inserter(cfg)
-    dictation = Dictation(cfg, recorder, transcriber, inserter, indicator, refresh=live.refresh)
+    dictation = Dictation(
+        cfg,
+        recorder,
+        transcriber,
+        inserter,
+        indicator,
+        refresh=live.refresh,
+        ready=lambda: switcher.ready,
+    )
     listener = HotkeyListener(dictation.on_press, dictation.on_release, dictation.on_other_key, cfg)
     if selftest_wav:
-        threading.Thread(target=selftest.run, args=(selftest_wav, transcriber), daemon=True).start()
+        threading.Thread(
+            target=selftest.run,
+            args=(selftest_wav, transcriber, lambda: switcher.ready),
+            daemon=True,
+        ).start()
     else:
         listener.start()
+    if background_load:
+        switcher.start_initial(cfg.model_repo)
     log.info(
         "Ready. Hold Option (%s) for %.1f s, speak, release. Indicator: %s. Ctrl+C to quit.",
         cfg.option_keys,

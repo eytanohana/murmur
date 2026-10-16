@@ -174,3 +174,11 @@ def test_revert_model_restores_only_a_hand_edited_file(setup):
     assert "bad/repo" in path.read_text()  # a menu switch never wrote the file
     live.revert_model("bad/repo", "old/repo", from_file=True)
     assert 'model_repo = "old/repo"' in path.read_text()
+
+
+def test_choosing_the_configured_model_again_still_reaches_the_switcher(setup):
+    live, _, path = setup
+    calls = []
+    live.model_hook = lambda repo, from_file: calls.append((repo, from_file))
+    live.set_value("model_repo", live.cfg.model_repo)  # a retry after a failed first load
+    assert calls == [(live.cfg.model_repo, False)] and not path.exists()
