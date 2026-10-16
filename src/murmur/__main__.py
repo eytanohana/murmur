@@ -100,6 +100,7 @@ def run_dictation(
     live.key_hooks["launch_at_login"] = launchlogin.apply
     indicator = make_indicator(live, restart, switcher)
     indicator.open_scope = str(lock.path)
+    indicator.stop_everything = lambda: (listener.stop(), recorder.stop())
     indicator.is_busy = lambda: dictation.state is not State.IDLE
     indicator.show_settings_on_start = reopen.should_welcome(first_launch, bool(selftest_wav))
     recorder = Recorder(cfg)

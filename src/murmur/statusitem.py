@@ -43,11 +43,13 @@ class StatusItem:
         on_restart: Callable[[], None],
         switcher: ModelSwitcher | None = None,
         window: SettingsWindow | None = None,
+        on_uninstall: Callable[[], None] | None = None,
     ):
         self.live = live
         self.on_restart = on_restart
         self.switcher = switcher
         self.window = window
+        self.on_uninstall = on_uninstall  # None hides the menu item
         self.item = None
         self.menu = None
         self.target = None
@@ -171,6 +173,7 @@ class StatusItem:
             state,
             cached,
             launch_login=is_frozen() and not agent_installed(),
+            uninstall=self.on_uninstall is not None and is_frozen(),
         )
         self._fill(self.menu, items)
 
@@ -213,6 +216,9 @@ class StatusItem:
                 self.window.show()
         elif it.action == "restart":
             self.on_restart()
+        elif it.action == "uninstall":
+            if self.on_uninstall is not None:
+                self.on_uninstall()
         elif it.action == "quit":
             import AppKit
 

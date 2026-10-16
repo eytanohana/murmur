@@ -92,6 +92,7 @@ class SettingsWindow:
         self._handlers: dict[int, Callable] = {}
         self._sound = None
         self._previous_app = None  # the app that was frontmost when the window opened
+        self.on_uninstall: Callable[[], None] | None = None  # None hides the button
         switcher.listeners.append(lambda state: main_thread(self.refresh))
 
     # ---- public (main thread) ------------------------------------------------------------
@@ -215,10 +216,21 @@ class SettingsWindow:
         self._handler(self.restart_button, lambda s: self.on_restart())
         self.reset_all = AppKit.NSButton.buttonWithTitle_target_action_("Reset all...", None, None)
         self._handler(self.reset_all, lambda s: self._confirm_reset_all())
+        self.uninstall_button = AppKit.NSButton.buttonWithTitle_target_action_(
+            "Uninstall murmur...", None, None
+        )
+        self.uninstall_button.setBezelStyle_(AppKit.NSBezelStyleInline)
+        self.uninstall_button.setControlSize_(AppKit.NSControlSizeSmall)
+        self.uninstall_button.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        self._handler(self.uninstall_button, lambda s: self.on_uninstall and self.on_uninstall())
+        self.uninstall_button.setHidden_(self.on_uninstall is None or not is_frozen())
         spacer = AppKit.NSView.alloc().init()
         spacer.setTranslatesAutoresizingMaskIntoConstraints_(False)
         spacer.setContentHuggingPriority_forOrientation_(1, 0)
-        bar = self._stack([self.status, spacer, self.restart_button, self.reset_all], spacing=12)
+        bar = self._stack(
+            [self.uninstall_button, self.status, spacer, self.restart_button, self.reset_all],
+            spacing=12,
+        )
 
         content = window.contentView()
         root = self._stack([tabs, bar], vertical=True, spacing=12)
