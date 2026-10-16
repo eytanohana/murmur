@@ -81,7 +81,7 @@ Streaming is on by default. While Option is held, the buffer is re-transcribed a
 
 ## Config
 
-Optional file at `~/.config/murmur/config.toml`. Any key can be omitted.
+Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown keys and values of the wrong type (for example `min_hold_ms = "1000"`) stop the app at startup with an error naming the key.
 
 | Key | Default | Meaning |
 | --- | --- | --- |

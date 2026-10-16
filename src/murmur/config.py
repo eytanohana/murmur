@@ -50,6 +50,23 @@ def check_choice(key: str, value: str, valid: tuple[str, ...]) -> None:
         raise ValueError(f"{key} must be {options}")
 
 
+def check_type(key: str, value: object, default: object) -> None:
+    """Require the value to have the type of the field's default.
+
+    bool fields accept only bool, int fields reject bool, float fields take int or
+    float but not bool (TOML has no implicit conversions and bool is an int in Python).
+    """
+    expected = type(default)
+    if expected is float:
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+    elif expected is int:
+        ok = isinstance(value, int) and not isinstance(value, bool)
+    else:
+        ok = isinstance(value, expected)
+    if not ok:
+        raise ValueError(f"{key} must be {expected.__name__}, got {type(value).__name__}")
+
+
 def load_config(path: Path | None = None) -> Config:
     """Load config from TOML. Missing file gives defaults; unknown keys raise."""
     path = path or CONFIG_PATH
@@ -63,6 +80,7 @@ def load_config(path: Path | None = None) -> Config:
     if unknown:
         raise ValueError(f"Unknown config keys in {path}: {sorted(unknown)}")
     for key, value in data.items():
+        check_type(key, value, getattr(cfg, key))
         setattr(cfg, key, value)
     check_choice("option_keys", cfg.option_keys, OPTION_KEYS)
     check_choice("indicator", cfg.indicator, INDICATORS)
