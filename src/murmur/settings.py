@@ -166,12 +166,19 @@ class LiveSettings:
     def __init__(self, path: Path, cfg: Config, stat: Callable[[Path], int | None] = file_mtime):
         self.path = path
         self.cfg = cfg
+        # (repo, from_file): a model_repo change is not applied here; the model switcher loads
+        # the model first and calls commit_model once it is ready.
+        self.model_hook: Callable[[str, bool], None] | None = None
         self.pending: dict[str, object] = {}  # RESTART keys whose file value differs
         self.error: str | None = None  # set while the file on disk is invalid
         self._stat = stat
         self._seen = stat(path)
 
-    def _apply(self, key: str, value: object) -> None:
+    def _apply(self, key: str, value: object, from_file: bool = False) -> None:
+        if key == "model_repo" and self.model_hook is not None:
+            if value != self.cfg.model_repo:
+                self.model_hook(value, from_file)
+            return
         if key in LIVE_KEYS:
             setattr(self.cfg, key, value)
         elif value != getattr(self.cfg, key):
@@ -194,7 +201,7 @@ class LiveSettings:
         self.error = None
         changed = [k for k in LIVE_KEYS if getattr(new, k) != getattr(self.cfg, k)]
         for f in fields(Config):
-            self._apply(f.name, getattr(new, f.name))
+            self._apply(f.name, getattr(new, f.name), from_file=True)
         if changed:
             log.info(
                 "Config reloaded: %s (applies on the next Option press)",
@@ -206,7 +213,36 @@ class LiveSettings:
 
     def set_value(self, key: str, value: object) -> None:
         """Validate, write and apply one setting. Raises ValueError or OSError."""
+        if key == "model_repo" and self.model_hook is not None:
+            validate_setting(key, value)
+            self._apply(key, value)  # the file is written by commit_model after the load
+            return
         write_setting(self.path, key, value)
         self._seen = self._stat(self.path)  # our own write: do not reload it
         self.error = None
         self._apply(key, value)
+
+    def commit_model(self, repo: str, language: str | None = None) -> None:
+        """The new model is installed: make it the live value and persist it."""
+        self.cfg.model_repo = repo
+        updates = {"model_repo": repo}
+        if language is not None:
+            self.cfg.language = language
+            updates["language"] = language
+        try:
+            for key, value in updates.items():
+                write_setting(self.path, key, value)
+            self._seen = self._stat(self.path)
+        except (ValueError, OSError) as exc:  # the swap happened; only the file is behind
+            log.warning("Could not save the model to %s: %s", self.path, exc)
+
+    def revert_model(self, failed_repo: str, old_repo: str, from_file: bool) -> None:
+        """A switch failed. A hand-edited file still names the failed model: put the old one back."""
+        if not from_file:
+            return
+        try:
+            write_setting(self.path, "model_repo", old_repo)
+            self._seen = self._stat(self.path)
+            log.warning("Restored model_repo = %r in %s", old_repo, self.path)
+        except (ValueError, OSError) as exc:
+            log.warning("Could not restore model_repo in %s: %s", self.path, exc)

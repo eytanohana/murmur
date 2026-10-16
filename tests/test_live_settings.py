@@ -130,3 +130,47 @@ def test_a_deleted_file_falls_back_to_defaults(setup):
     stat.mtime = None
     live.refresh()
     assert live.cfg.sounds is False
+
+
+# ---- model_repo goes through the switcher, not straight into the config ----------
+
+
+def test_a_model_change_in_the_file_calls_the_hook_and_leaves_the_config_alone(setup):
+    live, stat, path = setup
+    calls = []
+    live.model_hook = lambda repo, from_file: calls.append((repo, from_file))
+    edit(path, stat, 'model_repo = "mlx-community/whisper-base.en-mlx"\n')
+    live.refresh()
+    assert calls == [("mlx-community/whisper-base.en-mlx", True)]
+    assert live.cfg.model_repo == Config().model_repo  # unchanged until commit_model
+
+
+def test_set_value_for_the_model_does_not_write_the_file(setup):
+    live, _, path = setup
+    calls = []
+    live.model_hook = lambda repo, from_file: calls.append((repo, from_file))
+    live.set_value("model_repo", "mlx-community/whisper-base.en-mlx")
+    assert calls == [("mlx-community/whisper-base.en-mlx", False)]
+    assert not path.exists()
+    with pytest.raises(ValueError, match="must not be empty"):
+        live.set_value("model_repo", " ")
+
+
+def test_commit_model_updates_config_and_file_and_is_not_reloaded(setup, monkeypatch):
+    live, stat, path = setup
+    stat.mtime = 9
+    live.commit_model("mlx-community/whisper-base.en-mlx", "en")
+    assert (live.cfg.model_repo, live.cfg.language) == ("mlx-community/whisper-base.en-mlx", "en")
+    text = path.read_text()
+    assert "whisper-base.en-mlx" in text and 'language = "en"' in text
+    monkeypatch.setattr("murmur.settings.load_config", lambda p: pytest.fail("reloaded own write"))
+    assert live.refresh() is False
+
+
+def test_revert_model_restores_only_a_hand_edited_file(setup):
+    live, stat, path = setup
+    edit(path, stat, 'model_repo = "bad/repo"\n')
+    live.revert_model("bad/repo", "old/repo", from_file=False)
+    assert "bad/repo" in path.read_text()  # a menu switch never wrote the file
+    live.revert_model("bad/repo", "old/repo", from_file=True)
+    assert 'model_repo = "old/repo"' in path.read_text()
