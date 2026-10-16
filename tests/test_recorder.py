@@ -89,3 +89,33 @@ def test_a_second_recording_starts_from_a_clean_buffer(monkeypatch):
     rec.start()
     feed(rec, [0.3] * 3)  # a full cap again: the counter was reset by start()
     assert rec.stop().shape == (300,)
+
+
+def test_input_status_warns_once_per_recording(monkeypatch, caplog):
+    class FakeStream:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("murmur.recorder.sd.InputStream", FakeStream)
+    rec = Recorder(SR, 10)
+    block = np.zeros((100, 1), dtype=np.float32)
+    with caplog.at_level("WARNING", logger="murmur"):
+        rec.start()
+        rec._callback(block, 100, None, None)  # clean buffer: no warning
+        assert caplog.text == ""
+        rec._callback(block, 100, None, "input overflow")
+        rec._callback(block, 100, None, "input overflow")
+        assert caplog.text.count("Audio input problem (input overflow)") == 1
+        rec.stop()
+        rec.start()
+        rec._callback(block, 100, None, "input overflow")  # a new recording warns again
+    assert caplog.text.count("Audio input problem") == 2
