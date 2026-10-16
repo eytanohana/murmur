@@ -1,10 +1,14 @@
 # PyInstaller spec for murmur.app (Apple Silicon). Built by scripts/build_app.sh.
 import os
+import sys
 import tomllib
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
+sys.path.insert(0, SPECPATH)
+from build_info import mlx_min_macos  # noqa: E402
+
 with open(os.path.join(ROOT, "pyproject.toml"), "rb") as f:
     VERSION = tomllib.load(f)["project"]["version"]
 
@@ -71,7 +75,7 @@ app = BUNDLE(
         "CFBundleShortVersionString": VERSION,
         "CFBundleVersion": VERSION,
         "LSUIElement": True,
-        "LSMinimumSystemVersion": "15.0",
+        "LSMinimumSystemVersion": mlx_min_macos(),  # the installed mlx wheel decides
         "NSMicrophoneUsageDescription": (
             "murmur records your voice while you hold Option, to turn it into text on this Mac."
         ),
