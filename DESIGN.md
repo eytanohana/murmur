@@ -85,7 +85,13 @@ src/murmur/
   models.py       curated model list, cache detection, offline switch
   modelswitch.py  background model download, load and swap (no display needed)
   mainthread.py   hop onto the AppKit main thread
-  agent.py        LaunchAgent plist and launchctl commands
+  agent.py        LaunchAgent plist and launchctl commands (developer path)
+  frozen.py       is_frozen and the app bundle path
+  instance.py     single-instance flock
+  launchlogin.py  launch at login: SMAppService, LaunchAgent fallback
+  selftest.py     MURMUR_SELFTEST_WAV hook for the frozen app
+packaging/        PyInstaller spec, dmgbuild settings, launcher
+scripts/          build_app.sh, make_assets.py (icon, dmg background), release.sh
   permissions.py  startup permission checks and prompts (Accessibility, Input Monitoring, mic)
 tests/            pytest (fakes in helpers.py, fixtures in conftest.py); unit tests for state machine, min-hold, combo cancel, silence gate, with hotkey/audio/inserter mocked
 ```
@@ -112,6 +118,14 @@ Notes:
 ## Models and live switching
 
 `models.py` holds the curated list (tiny.en, base.en, small.en, medium.en, large-v3 turbo, large-v3, distil large-v3; each verified against the Hugging Face API and loaded with mlx_whisper 0.4.x, which only reads `weights.safetensors` or `weights.npz`). `ModelSwitcher` downloads and loads a new model on a background thread while the old one keeps serving, then swaps under the transcriber lock and only between dictations by setting mlx_whisper's `ModelHolder`; the config value and file change only after a successful load, a failure keeps the old model, and the old weights and MLX cache are released. Switching to an English-only model sets `language = "en"`. At startup murmur goes offline only when the configured model is cached; an explicit switch lifts offline mode for its download, so an older plist that exports `HF_HUB_OFFLINE=1` still works.
+
+## App bundle
+
+`scripts/build_app.sh` builds murmur.app for Apple Silicon with PyInstaller (`packaging/murmur.spec`) and a dmg with dmgbuild. py2app was tried first and rejected: it cannot locate mlx, a namespace package. The spec collects mlx's dylibs and metallib, mlx-whisper's data files, tiktoken and PortAudio, and excludes torch (about 400 MB, imported only by a conversion script). The model is not bundled. `LSUIElement` is true (no Dock icon), the bundle id is `com.eytanohana.murmur`, `NSMicrophoneUsageDescription` carries the prompt text, and `LSMinimumSystemVersion` comes from the installed mlx wheel's platform tag. The app is signed ad hoc without hardened runtime: there is no Developer ID or notarization, and hardened runtime would need entitlements for numba's JIT and library validation for mlx's dylibs. Consequence: permission grants and Gatekeeper approval do not carry over to the next build.
+
+Frozen behavior (`frozen.py`, `permissions.py`, `instance.py`, `launchlogin.py`): permission messages name `murmur.app (path)`; the first launch without a config writes one with `menubar_icon = true` (the only visible presence of an app with no terminal); the app logs to `~/Library/Logs/murmur.log` as well as stderr; a flock instance lock stops a second copy; restart waits for the old pid to exit and then opens the bundle with `open -n`. An uncached model downloads on the switcher's background thread (the first load of the session), so the AppKit loop and the status menu are up while it downloads; dictation is ignored until `switcher.ready`, and a failed first load stays not ready and retries when the model is chosen again. Launch at login registers `SMAppService.mainApp` (loaded with `objc.loadBundle`, no extra package) and falls back to a user LaunchAgent that runs `open -a` if the system refuses; it refuses to enable next to the developer LaunchAgent `com.user.murmur`. `MURMUR_SELFTEST_WAV` is a test hook (see the README), not a user feature.
+
+Release: `release.yml` builds the dmg in a `build-app` job that runs beside the PyPI job (neither waits for the other) and `attach-dmg` uploads it to the release `build-and-publish` creates, only when both succeeded. `app-build.yml` builds the app on relevant pull requests.
 
 ## Tooling
 
