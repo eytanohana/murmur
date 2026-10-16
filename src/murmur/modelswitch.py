@@ -112,6 +112,7 @@ class ModelSwitcher:
         on_commit: Callable[[str, str | None], None],
         on_failed: Callable[[str, str, bool], None] = lambda repo, old, from_file: None,
         sleep: Callable[[float], None] = time.sleep,
+        ready: bool = True,
     ):
         self.cfg = cfg
         self.loader = loader
@@ -120,7 +121,7 @@ class ModelSwitcher:
         self.on_commit = on_commit  # (repo, language or None): update config and file
         self.on_failed = on_failed  # (repo, old_repo, from_file): restore a hand-edited file
         self._sleep = sleep
-        self.ready = True  # False until the first model of a session finished loading
+        self.ready = ready  # False until the first model of a session finished loading
         self.state = SwitchState()
         self.listeners: list[Callable[[SwitchState], None]] = []
         self._generation = 0
@@ -193,7 +194,15 @@ class ModelSwitcher:
                 return
             swapped, previous = self._swap_when_idle(model, repo, gen, initial)
         except Exception as exc:  # noqa: BLE001  any failure keeps the old model serving
-            log.error("Could not switch to %s, keeping %s: %s", repo, old_repo, exc)
+            if initial:
+                log.error(
+                    "Could not load model %s: %s. Relaunch murmur or choose the model "
+                    "again in the Model tab to retry.",
+                    repo,
+                    exc,
+                )
+            else:
+                log.error("Could not switch to %s, keeping %s: %s", repo, old_repo, exc)
             if not self._stale(gen):
                 self._set(status=FAILED, error=str(exc), progress=None)
                 self.on_failed(repo, old_repo, from_file)

@@ -91,6 +91,7 @@ def run_dictation(cfg: Config, config_path: Path, lock_path: Path | None = None)
         is_busy=lambda: dictation.state is not State.IDLE,
         on_commit=live.commit_model,
         on_failed=live.revert_model,
+        ready=not background_load,  # nothing may type before the first model is in
     )
     live.model_hook = switcher.request
     live.key_hooks["launch_at_login"] = launchlogin.apply

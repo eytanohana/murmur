@@ -292,3 +292,21 @@ def test_a_failed_switch_later_does_not_make_a_running_app_not_ready():
     rig.loader.fail_load = ValueError("bad weights")
     rig.run(MULTI)
     assert rig.switcher.ready is True  # the old model keeps serving
+
+
+def test_a_switcher_built_for_a_background_load_starts_not_ready():
+    rig = Rig()
+    pending = ModelSwitcher(
+        rig.cfg, rig.loader, rig.lock, lambda: False, lambda *a: None, ready=False
+    )
+    assert pending.ready is False and rig.switcher.ready is True
+
+
+def test_the_log_for_a_failed_first_load_says_how_to_retry(caplog):
+    rig = Rig()
+    rig.loader.fail_download = OSError("offline")
+    with caplog.at_level("ERROR", logger="murmur"):
+        rig.switcher.start_initial(OLD)
+        rig.switcher.join(5)
+    assert "Could not load model" in caplog.text and "choose the model again" in caplog.text
+    assert "keeping" not in caplog.text  # there is no old model to keep
