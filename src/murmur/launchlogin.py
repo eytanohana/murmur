@@ -60,15 +60,18 @@ class MainAppService:
         )
         self._service = objc.lookUpClass("SMAppService").mainAppService()
 
-    def register(self) -> None:
-        ok, error = self._service.registerAndReturnError_(None)
+    @staticmethod
+    def _check(result) -> None:
+        """PyObjC returns either a bool or an (ok, error) pair for these error-out methods."""
+        ok, error = result if isinstance(result, tuple) else (result, None)
         if not ok:
-            raise RuntimeError(str(error))
+            raise RuntimeError(str(error) if error is not None else "the system refused")
+
+    def register(self) -> None:
+        self._check(self._service.registerAndReturnError_(None))
 
     def unregister(self) -> None:
-        ok, error = self._service.unregisterAndReturnError_(None)
-        if not ok:
-            raise RuntimeError(str(error))
+        self._check(self._service.unregisterAndReturnError_(None))
 
     def status(self) -> int:
         return int(self._service.status())

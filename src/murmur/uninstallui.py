@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -33,6 +34,7 @@ def current_context() -> Context:
         log_file=log_path(Path.home()),
         dev_agent_installed=launchlogin.agent_installed(),
         models=tuple(models.curated_cache()),
+        uninstall_log=log_path(Path.home()).with_name("murmur-uninstall.log"),
     )
 
 
@@ -106,6 +108,57 @@ def terminate() -> None:  # pragma: no cover - ends the process
     AppKit.NSApp.terminate_(None)  # a clean exit, status 0
 
 
+class ProgressPanel:  # pragma: no cover - AppKit window
+    """A small non-modal panel, so nothing looks stuck while the steps run."""
+
+    def __init__(self):
+        self.panel = None
+        self.detail = None
+
+    def show(self, title: str, detail: str = "") -> None:
+        import AppKit
+
+        style = (
+            AppKit.NSWindowStyleMaskTitled
+            | AppKit.NSWindowStyleMaskHUDWindow
+            | AppKit.NSWindowStyleMaskUtilityWindow  # AppKit requires it for a HUD panel
+            | AppKit.NSWindowStyleMaskNonactivatingPanel
+        )
+        panel = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            AppKit.NSMakeRect(0, 0, 360, 110), style, AppKit.NSBackingStoreBuffered, False
+        )
+        panel.setTitle_("murmur")
+        panel.setLevel_(AppKit.NSFloatingWindowLevel)
+        panel.setReleasedWhenClosed_(False)
+        spinner = AppKit.NSProgressIndicator.alloc().initWithFrame_(
+            AppKit.NSMakeRect(20, 52, 24, 24)
+        )
+        spinner.setStyle_(AppKit.NSProgressIndicatorStyleSpinning)
+        spinner.setIndeterminate_(True)
+        spinner.startAnimation_(None)
+        heading = AppKit.NSTextField.labelWithString_(title)
+        heading.setFont_(AppKit.NSFont.boldSystemFontOfSize_(14))
+        heading.setFrame_(AppKit.NSMakeRect(54, 54, 290, 20))
+        self.detail = AppKit.NSTextField.labelWithString_(detail)
+        self.detail.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        self.detail.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        self.detail.setFrame_(AppKit.NSMakeRect(54, 24, 290, 20))
+        for view in (spinner, heading, self.detail):
+            panel.contentView().addSubview_(view)
+        panel.center()
+        panel.orderFrontRegardless()  # never takes focus
+        self.panel = panel
+
+    def update(self, detail: str) -> None:
+        if self.detail is not None:
+            main_thread(self.detail.setStringValue_, detail)
+
+    def close(self) -> None:
+        if self.panel is not None:
+            self.panel.orderOut_(None)
+            self.panel = None
+
+
 class UninstallController:
     """Runs on the main thread: checks, asks, then works on a background thread."""
 
@@ -120,6 +173,9 @@ class UninstallController:
         notify: Callable[[str, str], None] = show_message,
         quit_app: Callable[[], None] = terminate,
         run_async: bool = True,
+        begin_ui: Callable[[], None] = lambda: None,
+        progress_factory: Callable[[], ProgressPanel] = ProgressPanel,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.switcher = switcher
         self.is_busy = is_busy
@@ -130,6 +186,10 @@ class UninstallController:
         self.notify = notify
         self.quit_app = quit_app
         self.run_async = run_async
+        self.begin_ui = begin_ui  # closes Settings and hides the icon (main thread)
+        self.progress_factory = progress_factory
+        self.clock = clock
+        self.progress = None
         self.running = False  # True from the confirmation on; blocks restart
         self.results: list[uninstall.StepResult] = []
 
@@ -150,19 +210,47 @@ class UninstallController:
         if choices is None:
             return  # Cancel does nothing
         self.running = True
-        self.stop_everything()  # no listener, no recording, nothing that could relaunch us
+        # The user's confirmation is answered at once: Settings goes away, the icon is hidden
+        # and a small panel says what is happening. The steps then run off the main thread.
+        self.begin_ui()
+        self.progress = self.progress_factory()
+        self.progress.show("Uninstalling murmur...", "Starting")
         plan = uninstall.build_plan(ctx, choices)
         ops = self.ops_factory(ctx)
         if self.run_async:
-            threading.Thread(target=self._work, args=(plan, ops, ctx), daemon=True).start()
+            threading.Thread(target=self._work, args=(plan, ops, ctx, choices), daemon=True).start()
         else:
-            self._work(plan, ops, ctx)
+            self._work(plan, ops, ctx, choices)
 
-    def _work(self, plan, ops, ctx) -> None:
-        self.results = uninstall.execute(plan, ops, ctx)
+    def _work(self, plan, ops, ctx, choices) -> None:
+        timing = uninstall.TimingLog(ctx.uninstall_log, self.clock)
+        timing.write(f"uninstall started ({len(plan)} steps)")
+        began = self.clock()
+        try:
+            self.stop_everything()  # no listener and no recording; nothing can relaunch us
+            timing.write(f"stop listener and recorder: {self.clock() - began:.2f}s")
+        except Exception as exc:  # noqa: BLE001  never let this stop the uninstall
+            timing.write(f"stop listener and recorder: FAILED ({exc})")
+        self.results = uninstall.execute(
+            plan,
+            ops,
+            ctx,
+            on_result=timing.step,
+            on_start=lambda step: self.progress.update(step.label),
+            clock=self.clock,
+        )
+        timing.write(f"all steps finished in {self.clock() - began:.2f}s; quitting")
+        if choices.delete_data and ctx.uninstall_log is not None:
+            # The user chose to delete the log, so this file goes last (after the timings).
+            try:
+                ops.delete_path(ctx.uninstall_log)
+            except Exception:  # noqa: BLE001  a leftover log is not worth a failure
+                log.warning("Could not delete %s", ctx.uninstall_log)
         main_thread(self._finish) if self.run_async else self._finish()
 
     def _finish(self) -> None:
+        if self.progress is not None:
+            self.progress.close()
         failed = uninstall.trash_failed(self.results)
         if failed is not None:
             self.notify(

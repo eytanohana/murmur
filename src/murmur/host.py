@@ -134,8 +134,18 @@ def make_indicator(
     if switcher is not None:
         from .uninstallui import UninstallController
 
+        def begin_uninstall_ui() -> None:
+            """Answer the confirmation at once: close Settings, hide the icon and the pill."""
+            window.close_window()
+            item.set_enabled(False)
+            for part in parts:
+                part.set("idle")
+
         controller = UninstallController(
-            switcher, lambda: host.is_busy(), lambda: host.stop_everything()
+            switcher,
+            lambda: host.is_busy(),
+            lambda: host.stop_everything(),
+            begin_ui=begin_uninstall_ui,
         )
         host.uninstall = controller
         item.on_uninstall = window.on_uninstall = controller.start

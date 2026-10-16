@@ -110,6 +110,11 @@ class SettingsWindow:
         )  # an accessory app must activate to take input
         self.window.makeKeyAndOrderFront_(None)
 
+    def close_window(self) -> None:
+        """Close the window if it is open (main thread)."""
+        if self.window is not None:
+            self.window.close()
+
     def refresh(self) -> None:
         """Show the live values, restart flags, reset buttons and model status."""
         if self.window is None:

@@ -62,6 +62,20 @@ class FakeOps:
 DEFAULT = Choices()
 
 
+class FakeProgress:
+    def __init__(self, spy):
+        self.spy = spy
+
+    def show(self, title, detail=""):
+        self.spy.events.append(f"progress:{title}")
+
+    def update(self, detail):
+        self.spy.events.append(f"detail:{detail}")
+
+    def close(self):
+        self.spy.events.append("progress closed")
+
+
 def controller(ctx=None, answer=DEFAULT, busy=False, sw=None, fail=()):
     spy = Spy()
     messages = []
@@ -75,6 +89,8 @@ def controller(ctx=None, answer=DEFAULT, busy=False, sw=None, fail=()):
         notify=lambda t, m: messages.append((t, m)),
         quit_app=lambda: spy.events.append("quit"),
         run_async=False,
+        begin_ui=lambda: spy.events.append("begin_ui"),
+        progress_factory=lambda: FakeProgress(spy),
     )
     return c, spy, messages
 
@@ -88,7 +104,8 @@ def test_cancel_does_nothing_at_all():
 def test_confirming_stops_dictation_then_runs_the_steps_in_order_and_quits():
     c, spy, _ = controller(answer=Choices(delete_data=True, delete_models=False))
     c.start()
-    assert spy.events == ["ask", "stop", "login_off", "delete", "delete", "tcc", "trash", "quit"]
+    work = [e for e in spy.events if not e.startswith(("detail:", "progress", "begin_ui"))]
+    assert work == ["ask", "stop", "login_off", "delete", "delete", "tcc", "trash", "quit"]
     assert c.running is True and all(r.ok for r in c.results)
 
 
@@ -220,3 +237,171 @@ def test_the_context_comes_from_the_apps_own_constants(monkeypatch, tmp_path):
     assert uninstall.available(ctx)
     monkeypatch.setattr(uninstallui, "is_frozen", lambda: False)
     assert uninstallui.current_context().bundle is None
+
+
+# ---- the confirmation is answered at once ---------------------------------------------------------------------
+
+
+def test_the_window_goes_away_and_the_panel_shows_before_any_step_runs():
+    c, spy, _ = controller()
+    c.start()
+    e = spy.events
+    assert e.index("begin_ui") < e.index("progress:Uninstalling murmur...") < e.index("login_off")
+    assert e.index("ask") < e.index("begin_ui")  # only after the confirmation
+    assert e.index("progress closed") < e.index("quit")  # nothing is left on screen at quit
+
+
+def test_the_panel_names_each_step_as_it_starts():
+    c, spy, _ = controller(answer=Choices(delete_data=False, delete_models=False))
+    c.start()
+    details = [e for e in spy.events if e.startswith("detail:")]
+    assert details[0] == "detail:Turn off launch at login"
+    assert details[-1].startswith("detail:Move ")
+
+
+def test_cancel_leaves_the_window_and_the_icon_alone():
+    c, spy, _ = controller(answer=None)
+    c.start()
+    assert "begin_ui" not in spy.events and not any(e.startswith("progress") for e in spy.events)
+
+
+def test_the_panel_is_closed_before_the_drag_it_yourself_message():
+    c, spy, messages = controller(fail={"trash"})
+    c.start()
+    assert spy.events.index("progress closed") < spy.events.index("quit") and messages
+
+
+# ---- the timing log -------------------------------------------------------------------------------------------------
+
+
+def test_each_step_is_timed_into_a_log_that_is_kept(tmp_path):
+    log_file = tmp_path / "murmur-uninstall.log"
+    ctx = make_ctx(uninstall_log=log_file)
+    c, _spy, _ = controller(ctx=ctx, answer=Choices(delete_data=False, delete_models=False))
+    c.start()
+    text = log_file.read_text()
+    assert "uninstall started (3 steps)" in text and "stop listener and recorder" in text
+    for label in ("Turn off launch at login", "Reset murmur's privacy permissions", "to the Trash"):
+        assert label in text
+    assert text.count(" in ") >= 3 and "all steps finished" in text
+    assert log_file.exists()  # kept when the user did not ask to delete the log
+
+
+def test_the_uninstall_log_is_deleted_last_when_the_user_deletes_the_log(tmp_path):
+    log_file = tmp_path / "murmur-uninstall.log"
+    ctx = make_ctx(uninstall_log=log_file)
+    c, spy, _ = controller(ctx=ctx, answer=Choices(delete_data=True, delete_models=False))
+    deleted = []
+    c.ops_factory = lambda cx: type(
+        "O",
+        (FakeOps,),
+        {"delete_path": lambda self, p: deleted.append(p) or "ok"},
+    )(spy)
+    c.start()
+    assert deleted[-1] == log_file  # after the timings were written, and the last delete
+    assert "all steps finished" in log_file.read_text()
+
+
+def test_a_log_that_cannot_be_written_does_not_stop_the_uninstall(tmp_path):
+    blocked = tmp_path / "file"
+    blocked.write_text("x")
+    c, spy, _ = controller(ctx=make_ctx(uninstall_log=blocked / "murmur-uninstall.log"))
+    c.start()
+    assert spy.events[-1] == "quit" and all(r.ok for r in c.results)
+
+
+def test_stopping_the_listener_failing_does_not_stop_the_uninstall(tmp_path):
+    c, spy, _ = controller(ctx=make_ctx(uninstall_log=tmp_path / "u.log"))
+
+    def boom():
+        raise RuntimeError("pynput stuck")
+
+    c.stop_everything = boom
+    c.start()
+    assert spy.events[-1] == "quit" and "FAILED (pynput stuck)" in (tmp_path / "u.log").read_text()
+
+
+def test_the_alert_says_where_timings_go_and_when_that_file_is_deleted():
+    ctx = make_ctx(uninstall_log=Path("/Users/x/Library/Logs/murmur-uninstall.log"))
+    assert "murmur-uninstall.log" in uninstall.summary_text(ctx)
+    assert "kept unless you tick the first box" in uninstall.summary_text(ctx)
+    assert "uninstall log" in uninstall.data_option(ctx)[1]
+    assert "uninstall log" not in uninstall.data_option(make_ctx())[1]
+    assert ctx.uninstall_log in uninstall.allowed_delete_paths(ctx)
+
+
+def test_the_context_names_a_log_next_to_the_normal_one(monkeypatch):
+    monkeypatch.setattr(uninstallui, "is_frozen", lambda: True)
+    monkeypatch.setattr(uninstallui, "bundle_path", lambda: BUNDLE)
+    monkeypatch.setattr(uninstallui.models, "curated_cache", list)
+    ctx = uninstallui.current_context()
+    assert ctx.uninstall_log.name == "murmur-uninstall.log"
+    assert ctx.uninstall_log.parent == ctx.log_file.parent
+
+
+# ---- steps cannot hold each other up ----------------------------------------------------------------------------------
+
+
+def test_a_hung_step_times_out_and_the_next_steps_still_run():
+    import threading
+
+    gate = threading.Event()
+
+    class Hanging(FakeOps):
+        def login_off(self):
+            gate.wait(5)  # a system call that never returns
+            return "late"
+
+    spy = Spy()
+    ctx = make_ctx()
+    plan = uninstall.build_plan(ctx, Choices(delete_data=False, delete_models=False))
+    started = []
+    results = uninstall.execute(
+        plan, Hanging(spy), ctx, step_timeout=0.1, on_start=lambda s: started.append(s.kind)
+    )
+    gate.set()
+    assert results[0].ok is False and "timed out" in results[0].message
+    assert [r.ok for r in results[1:]] == [True, True]  # tcc and trash were not held up
+    assert started == [s.kind for s in plan]
+
+
+def test_each_result_carries_its_duration():
+    ticks = iter([0.0, 1.5, 10.0, 10.25, 20.0, 23.0])
+    ctx = make_ctx()
+    plan = uninstall.build_plan(ctx, Choices(delete_data=False, delete_models=False))
+    results = uninstall.execute(
+        plan, FakeOps(Spy()), ctx, clock=lambda: next(ticks), step_timeout=None
+    )
+    assert [r.seconds for r in results] == [1.5, 0.25, 3.0]
+
+
+# ---- the host closes Settings and hides the icon -----------------------------------------------------------------------
+
+
+def test_begin_ui_closes_settings_hides_the_icon_and_idles_the_pill(tmp_path):
+    from murmur.config import Config
+    from murmur.host import make_indicator
+    from murmur.settings import LiveSettings
+
+    live = LiveSettings(tmp_path / "c.toml", Config())  # indicator "overlay": a pill exists
+    sw = ModelSwitcher(live.cfg, None, None, lambda: False, lambda *a: None)
+    host = make_indicator(live, switcher=sw)
+    calls = []
+    host.window.close_window = lambda: calls.append("close settings")
+    host.parts[-1].set_enabled = lambda enabled: calls.append(f"icon enabled={enabled}")
+    pill = host.parts[0]
+    pill.set = lambda state: calls.append(f"pill {state}")
+    host.parts[-1].set = lambda state: calls.append(f"icon state {state}")
+    host.uninstall.begin_ui()
+    assert calls[0] == "close settings" and "icon enabled=False" in calls and "pill idle" in calls
+
+
+def test_the_launch_login_service_result_is_read_for_both_pyobjc_return_shapes():
+    from murmur.launchlogin import MainAppService
+
+    MainAppService._check(True)
+    MainAppService._check((True, None))
+    with pytest.raises(RuntimeError, match="refused"):
+        MainAppService._check(False)
+    with pytest.raises(RuntimeError, match="denied"):
+        MainAppService._check((False, "denied"))

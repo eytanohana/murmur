@@ -12,6 +12,8 @@ import logging
 import plistlib
 import shutil
 import subprocess
+import threading
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +51,7 @@ class Context:
     log_file: Path
     dev_agent_installed: bool
     models: tuple[CachedModel, ...] = ()
+    uninstall_log: Path | None = None  # step timings; kept unless the user deletes the log
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,7 @@ class StepResult:
     step: Step
     ok: bool
     message: str
+    seconds: float = 0.0
 
 
 def available(ctx: Context) -> bool:
@@ -89,7 +93,8 @@ def build_plan(ctx: Context, choices: Choices) -> list[Step]:
 
 def allowed_delete_paths(ctx: Context) -> frozenset[Path]:
     """The only paths a delete step may remove: exactly the ones the app itself uses."""
-    return frozenset({ctx.config_dir, ctx.log_file, *(m.path for m in ctx.models)})
+    extra = {ctx.uninstall_log} if ctx.uninstall_log is not None else set()
+    return frozenset({ctx.config_dir, ctx.log_file, *extra, *(m.path for m in ctx.models)})
 
 
 def safe_delete_target(path: Path, allowed: Iterable[Path]) -> str | None:
@@ -138,45 +143,118 @@ class Operations(Protocol):
     def trash(self, path: Path) -> str: ...
 
 
+STEP_TIMEOUT_S = 30.0
+
+
+def run_with_timeout(fn: Callable[[], str], timeout: float | None) -> str:
+    """Run `fn` on a helper thread so a hung system call cannot hold up the other steps.
+
+    The helper cannot be killed; after the timeout it is abandoned (it is a daemon thread)
+    and the step is reported as failed.
+    """
+    if timeout is None:
+        return fn()
+    box: list = []
+
+    def target() -> None:
+        try:
+            box.append((True, fn()))
+        except BaseException as exc:  # noqa: BLE001  handed back to the caller below
+            box.append((False, exc))
+
+    worker = threading.Thread(target=target, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise TimeoutError(f"timed out after {timeout:g}s, continuing")
+    ok, value = box[0]
+    if not ok:
+        raise value
+    return value
+
+
 def execute(
     plan: list[Step],
     ops: Operations,
     ctx: Context,
     on_result: Callable[[StepResult], None] | None = None,
+    on_start: Callable[[Step], None] | None = None,
+    clock: Callable[[], float] = time.monotonic,
+    step_timeout: float | None = STEP_TIMEOUT_S,
 ) -> list[StepResult]:
-    """Run every step in order. A step that raises or reports failure never stops the rest."""
+    """Run every step in order, timing each. A step that raises, fails or hangs never stops
+    the rest."""
     allowed = allowed_delete_paths(ctx)
+
+    def run(step: Step) -> str:
+        if step.kind == LOGIN_OFF:
+            return ops.login_off()
+        if step.kind == DEV_AGENT:
+            return ops.remove_dev_agent()
+        if step.kind == DELETE:
+            problem = safe_delete_target(step.path, allowed)
+            if problem:
+                raise PermissionError(problem)
+            return ops.delete_path(step.path)
+        if step.kind == TCC_RESET:
+            return ops.reset_permissions()
+        if step.kind == TRASH:
+            problem = check_trash_target(step.path, ctx.bundle)
+            if problem:
+                raise PermissionError(problem)
+            return ops.trash(step.path)
+        raise ValueError(f"unknown step {step.kind}")
+
     results: list[StepResult] = []
     for step in plan:
+        if on_start:
+            on_start(step)
+        started = clock()
         try:
-            if step.kind == LOGIN_OFF:
-                message = ops.login_off()
-            elif step.kind == DEV_AGENT:
-                message = ops.remove_dev_agent()
-            elif step.kind == DELETE:
-                problem = safe_delete_target(step.path, allowed)
-                if problem:
-                    raise PermissionError(problem)
-                message = ops.delete_path(step.path)
-            elif step.kind == TCC_RESET:
-                message = ops.reset_permissions()
-            elif step.kind == TRASH:
-                problem = check_trash_target(step.path, ctx.bundle)
-                if problem:
-                    raise PermissionError(problem)
-                message = ops.trash(step.path)
-            else:
-                raise ValueError(f"unknown step {step.kind}")
-            result = StepResult(step, True, message)
+            ok, message = True, run_with_timeout(lambda step=step: run(step), step_timeout)
         except Exception as exc:  # noqa: BLE001  isolate failures: report and go on
-            result = StepResult(step, False, str(exc))
-        (log.info if result.ok else log.warning)(
-            "Uninstall: %s: %s (%s)", step.label, "ok" if result.ok else "failed", result.message
+            ok, message = False, str(exc)
+        result = StepResult(step, ok, message, clock() - started)
+        (log.info if ok else log.warning)(
+            "Uninstall: %s: %s in %.2fs (%s)",
+            step.label,
+            "ok" if ok else "failed",
+            result.seconds,
+            message,
         )
         results.append(result)
         if on_result:
             on_result(result)
     return results
+
+
+class TimingLog:
+    """Appends one line per step to a file the uninstall does not delete (unless asked to).
+
+    Written and flushed as it goes, because the normal log is usually deleted by the same
+    uninstall. A failure to write never fails the uninstall.
+    """
+
+    def __init__(self, path: Path | None, clock: Callable[[], float] = time.monotonic):
+        self.path = path
+        self.clock = clock
+        self.started = clock()
+
+    def write(self, text: str) -> None:
+        if self.path is None:
+            return
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a") as f:
+                f.write(f"{stamp} +{self.clock() - self.started:6.2f}s  {text}\n")
+                f.flush()
+        except OSError:
+            pass
+
+    def step(self, result: StepResult) -> None:
+        status = "ok" if result.ok else "FAILED"
+        self.write(f"{result.step.label}: {status} in {result.seconds:.2f}s ({result.message})")
 
 
 def trash_failed(results: Iterable[StepResult]) -> StepResult | None:
@@ -191,6 +269,8 @@ def data_option(ctx: Context) -> tuple[str, str]:
     size = sum(models.folder_size(p) for p in (ctx.config_dir,) if p.is_dir())
     size += ctx.log_file.stat().st_size if ctx.log_file.is_file() else 0
     detail = f"{ctx.config_dir} and {ctx.log_file}"
+    if ctx.uninstall_log is not None:
+        detail += f", and the uninstall log {ctx.uninstall_log}"
     if size:
         detail += f" ({models.format_bytes(size)})"
     return "Also delete my settings and log", detail
@@ -223,7 +303,13 @@ def always_done(ctx: Context) -> list[str]:
 
 
 def summary_text(ctx: Context) -> str:
-    return "This will always:\n" + "\n".join(f"  - {line}" for line in always_done(ctx))
+    text = "This will always:\n" + "\n".join(f"  - {line}" for line in always_done(ctx))
+    if ctx.uninstall_log is not None:
+        text += (
+            f"\n\nThe time each step takes is written to {ctx.uninstall_log}. "
+            "That file is kept unless you tick the first box below."
+        )
+    return text
 
 
 # ---- the real operations -----------------------------------------------------------------------------------------
