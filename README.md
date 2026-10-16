@@ -14,7 +14,7 @@ murmur.app is a self-contained build for Apple Silicon Macs on macOS 15 or newer
    - Accessibility: murmur types the transcript into the app you are using.
    - Input Monitoring: murmur sees the Option key press and release.
    If you dismissed a prompt, turn murmur on in the matching list, then choose Restart murmur from the menu bar icon.
-5. First launch: with no config file the app writes `~/.config/murmur/config.toml` with `menubar_icon = true`, because without a terminal the menu bar icon is the only sign the app is running and its menu holds Settings and Quit. murmur then downloads the default model (about 1.6 GB, tiny to large-v3 are in the Model tab) in the background; the menu header reads "Downloading large-v3 turbo 37%..." and holding Option is ignored until it finishes. If the download fails (for example offline), the header says "Model load failed: see log", the error is in `~/Library/Logs/murmur.log`, and choosing the model again in the Model tab (or relaunching) retries. A model that is already cached loads in a few seconds with no download.
+5. First launch: Settings opens once as a welcome (where you grant the permissions). With no config file the app writes `~/.config/murmur/config.toml` with `menubar_icon = true`, because without a terminal the menu bar icon is the only sign the app is running and its menu holds Settings and Quit. murmur then downloads the default model (about 1.6 GB, tiny to large-v3 are in the Model tab) in the background; the menu header reads "Downloading large-v3 turbo 37%..." and holding Option is ignored until it finishes. If the download fails (for example offline), the header says "Model load failed: see log", the error is in `~/Library/Logs/murmur.log`, and choosing the model again in the Model tab (or relaunching) retries. A model that is already cached loads in a few seconds with no download.
 6. Launch at login: turn on "Launch at login" in the menu or in Settings > General. murmur registers with macOS as a login item; if macOS refuses an ad-hoc signed app it writes a small LaunchAgent (`~/Library/LaunchAgents/com.eytanohana.murmur.login.plist`) that opens the app instead. If you installed the developer LaunchAgent below (`com.user.murmur`), the toggle is disabled until you run `murmur uninstall-agent`, so two copies never start.
 
 Only one copy runs: starting murmur while it is already running (including the developer LaunchAgent) logs a line and the new copy exits, because two copies would both type every word. Restart murmur relaunches the app and waits for the old copy to exit first.
@@ -69,7 +69,9 @@ AppKit runs on the main thread and dictation on other threads. The app uses the 
 
 ## Menu bar icon
 
-Experimental and off by default, because the menu bar may be full. Set `menubar_icon = true` in the config. It adds a native status item that only says murmur is running: a microphone symbol (`mic`), which becomes `mic.fill` while recording, from the same moment the pill appears. It is a template image, so it follows light and dark menu bars. It works with `indicator = "none"` for an icon without the pill. The icon stays `mic` during the final pass; the pill shows "...".
+Off by default for a checkout run (the menu bar may be full) and on by default in murmur.app. Turn it on and off with Settings > Feedback > "Show icon in the menu bar" or `menubar_icon` in the config; it appears and disappears at once, with no restart, and works with the pill off. It is a native status item that only says murmur is running: a microphone symbol (`mic`), which becomes `mic.fill` while recording, from the same moment the pill appears. It is a template image, so it follows light and dark menu bars. It works with `indicator = "none"` for an icon without the pill. The icon stays `mic` during the final pass; the pill shows "...".
+
+**If you hide the icon, open murmur from Spotlight.** Cmd-dragging the icon out of the menu bar switches `menubar_icon` off in the config, so the Settings checkbox shows the real state. Launching murmur again (Spotlight, Finder, `open -a murmur`) opens the Settings window of the running copy, where you can turn the icon back on. Running the binary a second time (for example from a terminal) does the same: the second copy asks the first to open Settings and exits, unless a dictation is running. The very first launch opens Settings once as a welcome, which is where you grant the permissions; it does not open at login or on later launches. If the config says the icon is on but macOS has it hidden at startup, the config wins and the icon is shown again.
 
 On a Mac with a notch, macOS hides status items that do not fit. On the development Mac the bar was full, the item was created but macOS did not draw it, and it only appeared once there was room. If the icon is missing, remove or Cmd-drag another icon to make space.
 
@@ -135,7 +137,7 @@ uv run murmur uninstall-agent
 
 **Logs:** `tail -f ~/Library/Logs/murmur.log` (stdout and stderr, including permission warnings).
 
-**After editing the config:** nothing for most keys, they apply on the next Option press. After changing `sample_rate`, `indicator` or `menubar_icon`: `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
+**After editing the config:** nothing for most keys, they apply on the next Option press. After changing `sample_rate` or `indicator`: `launchctl kickstart -k gui/$(id -u)/com.user.murmur`
 
 **Permissions:** with no terminal attached, macOS attributes the permissions to the Python binary itself, not to your terminal. `install-agent` prints its path after installing, with symlinks resolved (for example `~/.local/share/uv/python/cpython-3.12.x-macos-aarch64-none/bin/python3.12`). In System Settings > Privacy & Security add that binary to Accessibility, Input Monitoring and Microphone (click +, press Cmd+Shift+G, paste the path), then run the kickstart command above. At startup the app requests the prompts for itself and warns in the log, naming the binary, when Accessibility or Input Monitoring is missing or the microphone returns only silence.
 
@@ -167,7 +169,7 @@ Streaming is on by default. While Option is held, the buffer is re-transcribed a
 
 ## Config
 
-Changes to the file apply on the next Option press, no restart needed. murmur checks the file's modification time once when you press Option (and when the menu bar menu opens) and only re-reads it when that changed. A key press picks up the new values for that dictation and they stay fixed until it ends. Only `sample_rate`, `indicator` and `menubar_icon` need a restart (`model_repo` loads the new model in the background and `language` applies at once); murmur logs them as pending and the menu names them. If the file is invalid, murmur keeps the previous settings, logs one warning per change and shows "Config error: see log" in the menu.
+Changes to the file apply on the next Option press, no restart needed. murmur checks the file's modification time once when you press Option (and when the menu bar menu opens) and only re-reads it when that changed. A key press picks up the new values for that dictation and they stay fixed until it ends. Only `sample_rate` and `indicator` need a restart (`model_repo` loads the new model in the background, `language` applies at once and `menubar_icon` adds or removes the icon at once); murmur logs them as pending and the menu names them. If the file is invalid, murmur keeps the previous settings, logs one warning per change and shows "Config error: see log" in the menu.
 
 Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown keys and values of the wrong type (for example `min_hold_ms = "1000"`) stop the app at startup with an error naming the key.
 
@@ -190,7 +192,7 @@ Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown
 | `stream_min_speech_s` | `0.3` | New speech needed to run a pass |
 | `stream_flush_silence_s` | `0.7` | Pause that flushes held-back words and the unsettled tail while Option is held |
 | `indicator` | `"overlay"` | `"overlay"` or `"none"` |
-| `menubar_icon` | `false` | Show the menu bar icon and settings menu |
+| `menubar_icon` | `false` (`true` in the app's first-launch config) | Show the menu bar icon and settings menu; live, no restart |
 | `indicator_position` | `"top-center"` | Overlay position |
 
 ## Pause flush
