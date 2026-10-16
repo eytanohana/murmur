@@ -61,7 +61,7 @@ def make_indicator(
     """Pill and/or status item per the config; a null indicator when both are off."""
     parts: list[Part] = []
     if cfg.indicator == "overlay":
-        parts.append(Overlay(cfg.indicator_position))
+        parts.append(Overlay(cfg))
     if cfg.menubar_icon:
         from .statusitem import StatusItem
 

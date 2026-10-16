@@ -8,13 +8,16 @@ import threading
 import numpy as np
 import sounddevice as sd
 
+from .config import Config
+
 log = logging.getLogger("murmur")
 
 
 class Recorder:
-    def __init__(self, sample_rate: int = 16000, max_seconds: float = 120.0, on_max=None):
-        self.sample_rate = sample_rate
-        self.max_samples = int(max_seconds * sample_rate)
+    def __init__(self, cfg: Config | None = None, on_max=None):
+        self.cfg = cfg or Config()
+        self.sample_rate = self.cfg.sample_rate
+        self.max_samples = self._cap()
         self.on_max = on_max
         self._chunks: list[np.ndarray] = []
         self._total = 0  # samples captured since start, never reduced by trim
@@ -22,6 +25,9 @@ class Recorder:
         self._lock = threading.Lock()
         self._max_fired = False
         self._warned_status = False
+
+    def _cap(self) -> int:
+        return int(self.cfg.max_record_s * self.sample_rate)
 
     def _callback(self, indata, frames, time_info, status) -> None:
         if status and not self._warned_status:
@@ -45,6 +51,7 @@ class Recorder:
             self._total = 0
             self._max_fired = False
             self._warned_status = False
+            self.max_samples = self._cap()  # a max_record_s change applies to this recording
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             channels=1,

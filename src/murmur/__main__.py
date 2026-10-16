@@ -44,7 +44,7 @@ def run_dictation(cfg: Config, config_path: Path) -> None:
     """Load the model, start the hotkey listener and hand the main thread to the indicator."""
     check_permissions()
     log.info("Loading model %s ...", cfg.model_repo)
-    transcriber = Transcriber(cfg.model_repo, cfg.language, cfg.silence_rms)
+    transcriber = Transcriber(cfg)
     t0 = time.monotonic()
     transcriber.warm_up(cfg.sample_rate)
     log.info("Model loaded and warmed in %.1fs", time.monotonic() - t0)
@@ -53,12 +53,10 @@ def run_dictation(cfg: Config, config_path: Path) -> None:
         restart_now(lambda: (listener.stop(), recorder.stop()))
 
     indicator = make_indicator(cfg, config_path, restart)
-    recorder = Recorder(cfg.sample_rate, cfg.max_record_s)
-    inserter = Inserter(cfg.insert_mode, cfg.paste_restore_delay_ms)
+    recorder = Recorder(cfg)
+    inserter = Inserter(cfg)
     dictation = Dictation(cfg, recorder, transcriber, inserter, indicator)
-    listener = HotkeyListener(
-        dictation.on_press, dictation.on_release, dictation.on_other_key, cfg.option_keys
-    )
+    listener = HotkeyListener(dictation.on_press, dictation.on_release, dictation.on_other_key, cfg)
     listener.start()
     log.info(
         "Ready. Hold Option (%s) for %.1f s, speak, release. Indicator: %s. Ctrl+C to quit.",

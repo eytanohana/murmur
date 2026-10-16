@@ -8,6 +8,7 @@ from __future__ import annotations
 import threading
 from typing import Protocol
 
+from .config import Config
 from .mainthread import main_thread
 
 PILL_W, PILL_H, MARGIN = 78.0, 26.0, 6.0
@@ -36,6 +37,18 @@ def overlay_origin(frame, visible, size, position: str, margin: float = MARGIN):
     return x, y
 
 
+def menu_bar_screen_rects():
+    """(frame, visible) of the screen that has the menu bar, as (x, y, w, h) tuples."""
+    import AppKit
+
+    screen = AppKit.NSScreen.screens()[0]
+    f, v = screen.frame(), screen.visibleFrame()
+    return (
+        (f.origin.x, f.origin.y, f.size.width, f.size.height),
+        (v.origin.x, v.origin.y, v.size.width, v.size.height),
+    )
+
+
 class Indicator(Protocol):
     """What Dictation and main() need from an indicator."""
 
@@ -60,8 +73,8 @@ class Overlay:
     A part of the Host: build() runs on the main thread before the run loop starts.
     """
 
-    def __init__(self, position: str = "top-center"):
-        self.position = position
+    def __init__(self, cfg: Config | None = None):
+        self.cfg = cfg or Config()  # indicator_position is read each time the pill is shown
         self.panel = None
         self.dot = None
         self.label = None
@@ -128,14 +141,8 @@ class Overlay:
             AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(*rgb, 1.0).CGColor()
         )
         self.label.setStringValue_(text)
-        screen = AppKit.NSScreen.screens()[0]  # the screen that has the menu bar
-        f, v = screen.frame(), screen.visibleFrame()
-        x, y = overlay_origin(
-            (f.origin.x, f.origin.y, f.size.width, f.size.height),
-            (v.origin.x, v.origin.y, v.size.width, v.size.height),
-            (PILL_W, PILL_H),
-            self.position,
-        )
+        frame, visible = menu_bar_screen_rects()
+        x, y = overlay_origin(frame, visible, (PILL_W, PILL_H), self.cfg.indicator_position)
         self.panel.setFrameOrigin_(AppKit.NSMakePoint(x, y))
         self.panel.orderFrontRegardless()  # never makeKey: focus stays in the typing app
 

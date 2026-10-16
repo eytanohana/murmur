@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .audio import rms
+from .config import Config
 
 
 @dataclass
@@ -17,10 +18,8 @@ class Word:
 
 
 class Transcriber:
-    def __init__(self, model_repo: str, language: str = "en", silence_rms: float = 0.005):
-        self.model_repo = model_repo
-        self.language = language
-        self.silence_rms = silence_rms
+    def __init__(self, cfg: Config | None = None):
+        self.cfg = cfg or Config()
 
     def _decode(
         self, audio: np.ndarray, word_timestamps: bool = False, initial_prompt: str | None = None
@@ -29,8 +28,8 @@ class Transcriber:
 
         return mlx_whisper.transcribe(
             audio,
-            path_or_hf_repo=self.model_repo,
-            language=self.language,
+            path_or_hf_repo=self.cfg.model_repo,
+            language=self.cfg.language,
             condition_on_previous_text=False,
             fp16=True,
             verbose=None,
@@ -47,7 +46,7 @@ class Transcriber:
     def transcribe(self, audio: np.ndarray) -> str:
         audio = np.asarray(audio, dtype=np.float32)
         clip_rms = rms(audio)
-        if clip_rms < self.silence_rms:
+        if clip_rms < self.cfg.silence_rms:
             return ""
         return self._decode(audio)["text"].strip()
 
@@ -61,7 +60,7 @@ class Transcriber:
         """
         audio = np.asarray(audio, dtype=np.float32)
         clip_rms = rms(audio)
-        if clip_rms < self.silence_rms:
+        if clip_rms < self.cfg.silence_rms:
             return []
         result = self._decode(audio, word_timestamps=timestamps, initial_prompt=initial_prompt)
         text = result.get("text", "").strip()

@@ -69,6 +69,11 @@ def check_type(key: str, value: object, default: object) -> None:
         raise ValueError(f"{key} must be {expected.__name__}, got {type(value).__name__}")
 
 
+# Keys that need a reload to take effect; every other key applies live, on the next
+# dictation, because collaborators read them from the shared Config.
+RESTART_KEYS = frozenset({"model_repo", "language", "sample_rate", "indicator", "menubar_icon"})
+LIVE_KEYS = frozenset(f.name for f in fields(Config)) - RESTART_KEYS
+
 CHOICES = {
     "option_keys": OPTION_KEYS,
     "indicator": INDICATORS,

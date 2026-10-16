@@ -17,13 +17,13 @@ def kinds(indicator):
 def test_overlay_only_is_the_default():
     ind = make_indicator(Config(), PATH)
     assert isinstance(ind, Host) and kinds(ind) == [Overlay]
-    assert ind.parts[0].position == "top-center"
+    assert ind.parts[0].cfg.indicator_position == "top-center"
 
 
 def test_overlay_position_comes_from_the_config():
-    assert make_indicator(Config(indicator_position="bottom-left"), PATH).parts[0].position == (
-        "bottom-left"
-    )
+    assert make_indicator(Config(indicator_position="bottom-left"), PATH).parts[
+        0
+    ].cfg.indicator_position == ("bottom-left")
 
 
 def test_icon_next_to_the_pill():

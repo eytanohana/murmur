@@ -16,6 +16,7 @@ import time
 
 import Quartz
 
+from .config import Config
 from .watchdog import watchdog
 
 log = logging.getLogger("murmur")
@@ -105,9 +106,8 @@ def set_clipboard(data: bytes) -> None:
 
 
 class Inserter:
-    def __init__(self, mode: str = "paste", restore_delay_ms: int = 150):
-        self.mode = mode
-        self.restore_delay = restore_delay_ms / 1000
+    def __init__(self, cfg: Config | None = None):
+        self.cfg = cfg or Config()
         self._warned = False
 
     def _check_trust(self) -> None:
@@ -122,7 +122,7 @@ class Inserter:
     def insert(self, text: str) -> None:
         if not text:
             return
-        if self.mode == "type":
+        if self.cfg.insert_mode == "type":
             self.type_text(text)
         else:
             self._paste(text)
@@ -143,6 +143,6 @@ class Inserter:
             previous = get_clipboard()
             set_clipboard(text.encode("utf-8"))
             post_cmd_v()
-            time.sleep(self.restore_delay)
+            time.sleep(self.cfg.paste_restore_delay_ms / 1000)
             set_clipboard(previous)
         log.info("insert (paste) %r -> Cmd+V posted", text)
