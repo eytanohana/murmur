@@ -27,6 +27,13 @@ def icon_for(state: str) -> str:
     return ICON_RECORDING if state == "recording" else ICON_IDLE
 
 
+ICON_DESCRIPTIONS = {
+    "idle": "murmur is running",
+    "recording": "murmur is recording",
+    "transcribing": "murmur is transcribing",
+}
+
+
 @dataclass(frozen=True)
 class MenuItem:
     """One row of the status menu. kind is header, separator, setting, submenu or action."""
