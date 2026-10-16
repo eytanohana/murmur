@@ -94,6 +94,13 @@ SCHEMA: tuple[Setting, ...] = (
         step=0.001,
     ),
     Setting(
+        "launch_at_login",
+        "Launch at login",
+        "Start murmur when you log in. Only in the murmur.app build.",
+        "General",
+        TOGGLE,
+    ),
+    Setting(
         "sample_rate",
         "Sample rate",
         "Whisper needs 16 kHz audio, so this cannot change.",
@@ -240,11 +247,10 @@ SCHEMA: tuple[Setting, ...] = (
     ),
     Setting(
         "menubar_icon",
-        "Menu bar icon",
-        "Show a menu bar icon. macOS hides it when the bar is full.",
+        "Show icon in the menu bar",
+        "If you hide it, open murmur from Spotlight to get back here.",
         "Feedback",
         TOGGLE,
-        live=False,
     ),
     # Model
     Setting(

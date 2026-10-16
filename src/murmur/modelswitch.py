@@ -112,6 +112,7 @@ class ModelSwitcher:
         on_commit: Callable[[str, str | None], None],
         on_failed: Callable[[str, str, bool], None] = lambda repo, old, from_file: None,
         sleep: Callable[[float], None] = time.sleep,
+        ready: bool = True,
     ):
         self.cfg = cfg
         self.loader = loader
@@ -120,6 +121,7 @@ class ModelSwitcher:
         self.on_commit = on_commit  # (repo, language or None): update config and file
         self.on_failed = on_failed  # (repo, old_repo, from_file): restore a hand-edited file
         self._sleep = sleep
+        self.ready = ready  # False until the first model of a session finished loading
         self.state = SwitchState()
         self.listeners: list[Callable[[SwitchState], None]] = []
         self._generation = 0
@@ -142,15 +144,28 @@ class ModelSwitcher:
     # control
 
     def request(self, repo: str, from_file: bool = False) -> None:
-        """Start switching to `repo`. Asking for the running model cancels a pending switch."""
+        """Start switching to `repo`. Asking for the running model cancels a pending switch.
+
+        Asking for the configured model while it never finished loading (a failed first
+        download) retries that load.
+        """
         self._generation += 1
         gen = self._generation
-        if repo == self.cfg.model_repo:
+        if repo == self.cfg.model_repo and self.ready:
             self.state = SwitchState()  # back to the current model: nothing to load
             self._set()
             return
-        self._thread = threading.Thread(target=self._run, args=(repo, gen, from_file), daemon=True)
+        initial = repo == self.cfg.model_repo
+        self.ready = self.ready and not initial
+        self._thread = threading.Thread(
+            target=self._run, args=(repo, gen, from_file, initial), daemon=True
+        )
         self._thread.start()
+
+    def start_initial(self, repo: str) -> None:
+        """Load the first model in the background, so the app is up while it downloads."""
+        self.ready = False
+        self.request(repo)
 
     def join(self, timeout: float | None = None) -> None:
         if self._thread:
@@ -159,11 +174,14 @@ class ModelSwitcher:
     def _stale(self, gen: int) -> bool:
         return gen != self._generation
 
-    def _run(self, repo: str, gen: int, from_file: bool) -> None:
+    def _run(self, repo: str, gen: int, from_file: bool, initial: bool = False) -> None:
         old_repo = self.cfg.model_repo
         self._downloaded = 0
         self._set(status=LOADING, target=repo, progress=0.0, error=None)
-        log.info("Switching model: %s -> %s", old_repo, repo)
+        if initial:
+            log.info("Loading model %s (first load of this session)", repo)
+        else:
+            log.info("Switching model: %s -> %s", old_repo, repo)
         t0 = time.monotonic()
         try:
             self.loader.download(repo, self._on_bytes)
@@ -174,9 +192,17 @@ class ModelSwitcher:
             if self._stale(gen):
                 self.loader.release()
                 return
-            swapped, previous = self._swap_when_idle(model, repo, gen)
+            swapped, previous = self._swap_when_idle(model, repo, gen, initial)
         except Exception as exc:  # noqa: BLE001  any failure keeps the old model serving
-            log.error("Could not switch to %s, keeping %s: %s", repo, old_repo, exc)
+            if initial:
+                log.error(
+                    "Could not load model %s: %s. Relaunch murmur or choose the model "
+                    "again in the Model tab to retry.",
+                    repo,
+                    exc,
+                )
+            else:
+                log.error("Could not switch to %s, keeping %s: %s", repo, old_repo, exc)
             if not self._stale(gen):
                 self._set(status=FAILED, error=str(exc), progress=None)
                 self.on_failed(repo, old_repo, from_file)
@@ -188,7 +214,9 @@ class ModelSwitcher:
         self._set(status=IDLE, progress=None)
         log.info("Model %s ready in %.1fs", repo, time.monotonic() - t0)
 
-    def _swap_when_idle(self, model: Any, repo: str, gen: int) -> tuple[bool, Any]:
+    def _swap_when_idle(
+        self, model: Any, repo: str, gen: int, initial: bool = False
+    ) -> tuple[bool, Any]:
         """Install between dictations. Returns (swapped, previous model)."""
         waiting_logged = False
         while True:
@@ -208,9 +236,11 @@ class ModelSwitcher:
                 language = (
                     "en" if models.is_english_only(repo) and self.cfg.language != "en" else None
                 )
-                self.on_commit(repo, language)
+                if not initial:  # the configured model is already the live value
+                    self.on_commit(repo, language)
                 try:
                     self.loader.warm_up()
                 except Exception:
                     log.exception("Warm-up after the model switch failed")
+            self.ready = True
             return True, previous

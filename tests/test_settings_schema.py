@@ -84,7 +84,7 @@ def test_text_settings_must_not_be_empty():
 
 
 def test_live_and_restart_split():
-    assert schema.RESTART_KEYS == {"sample_rate", "indicator", "menubar_icon"}
+    assert schema.RESTART_KEYS == {"sample_rate", "indicator"}
     assert schema.LIVE_KEYS | schema.RESTART_KEYS == set(BY_KEY)
     assert not schema.LIVE_KEYS & schema.RESTART_KEYS
     assert {"model_repo", "language"} <= schema.LIVE_KEYS

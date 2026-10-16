@@ -64,6 +64,7 @@ class Dictation:
         sound: Callable[[str], None] = play_sound,
         schedule: Callable[[float, Callable[[], None]], None] = start_timer,
         refresh: Callable[[], object] = lambda: None,
+        ready: Callable[[], bool] = lambda: True,
     ):
         self.cfg = cfg  # live: collaborators and menu edits see changes
         self.active = replace(cfg)  # the values of the current dictation, fixed at key down
@@ -76,6 +77,7 @@ class Dictation:
         self.sound = sound
         self.schedule = schedule
         self.refresh = refresh  # re-reads the config file when it changed; called at key down
+        self.ready = ready  # False while the first model is still downloading or loading
         self.state = State.IDLE
         self._lock = threading.Lock()
         self._started_at = 0.0
@@ -97,6 +99,9 @@ class Dictation:
                 log.info("Option pressed during transcription; ignored")
                 return
             if self.state is not State.IDLE:
+                return
+            if not self.ready():
+                log.info("Option pressed before the model finished loading; ignored")
                 return
             try:
                 self.refresh()

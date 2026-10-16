@@ -38,7 +38,7 @@ def test_menu_headers_show_status_and_the_current_model_and_are_disabled():
 
 def test_header_shows_a_model_load_in_progress_and_a_config_error():
     loading = SwitchState("loading", "mlx-community/whisper-base.en-mlx", progress=0.5)
-    assert settings.build_menu(Config(), switch=loading)[0].title == "Loading base.en 50%..."
+    assert settings.build_menu(Config(), switch=loading)[0].title == "Downloading base.en 50%..."
     assert settings.build_menu(Config(), error="bad")[0].title == "Config error: see log"
 
 

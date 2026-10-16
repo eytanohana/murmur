@@ -47,7 +47,13 @@ class RowState:
     is_default: bool
 
 
-def row_state(setting: Setting, cfg: Config, pending: Collection[str]) -> RowState:
+def row_state(
+    setting: Setting,
+    cfg: Config,
+    pending: Collection[str],
+    frozen: bool = True,
+    agent_installed: bool = False,
+) -> RowState:
     enabled, note = True, ""
     if setting.when is not None:
         key, wanted = setting.when
@@ -55,6 +61,15 @@ def row_state(setting: Setting, cfg: Config, pending: Collection[str]) -> RowSta
             enabled, note = False, setting.when_note
     if setting.key == "language" and models.is_english_only(cfg.model_repo):
         enabled, note = False, "The current model is English only, so it always uses en."
+    if setting.key == "launch_at_login":
+        if not frozen:
+            enabled, note = False, "Available in the murmur.app build."
+        elif agent_installed:
+            enabled = False
+            note = (
+                "The LaunchAgent com.user.murmur is installed. Run `murmur uninstall-agent` "
+                "first, so two copies do not start at login."
+            )
     return RowState(
         enabled=enabled,
         note=note,
@@ -84,7 +99,7 @@ def model_options(current: str, cached: Callable[[str], bool]) -> list[tuple[str
     return options
 
 
-def model_status_text(cfg: Config, state: SwitchState) -> str:
+def model_status_text(cfg: Config, state: SwitchState, ready: bool = True) -> str:
     """One line for the Model tab and the menu: what is loading, what failed, what is active."""
     target = models.short_name(state.target) if state.target else ""
     if state.status == "loading":
@@ -94,6 +109,8 @@ def model_status_text(cfg: Config, state: SwitchState) -> str:
     if state.status == "waiting":
         return f"{target} is ready and will be used after the current dictation."
     if state.status == "failed":
+        if not ready:  # nothing is loaded yet, so there is no old model to fall back to
+            return f"Could not load {target}: {state.error}. Choose the model again to retry."
         return f"Could not load {target}: {state.error}. Still using {models.short_name(cfg.model_repo)}."
     return f"Using {models.short_name(cfg.model_repo)}."
 
@@ -104,8 +121,9 @@ def header_text(state: SwitchState, error: str | None) -> str:
         return "Config error: see log"
     target = models.short_name(state.target) if state.target else ""
     if state.status == "loading":
-        pct = f" {round(state.progress * 100)}%" if state.progress is not None else ""
-        return f"Loading {target}{pct}..."
+        if state.progress is not None:
+            return f"Downloading {target} {round(state.progress * 100)}%..."
+        return f"Loading {target}..."
     if state.status == "waiting":
         return f"Switching to {target} after this dictation..."
     if state.status == "failed":

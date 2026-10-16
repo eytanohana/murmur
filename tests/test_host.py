@@ -4,7 +4,7 @@ from pathlib import Path
 
 from murmur.config import Config
 from murmur.host import Host, make_indicator
-from murmur.indicator import NullIndicator, Overlay
+from murmur.indicator import Overlay
 from murmur.settings import LiveSettings
 from murmur.statusitem import StatusItem
 
@@ -37,7 +37,7 @@ def test_overlay_position_comes_from_the_config():
     ].cfg.indicator_position == ("bottom-left")
 
 
-def test_icon_next_to_the_pill():
+def test_icon_next_to_the_pill_when_the_pill_is_on():
     ind = make_indicator(live(Config(menubar_icon=True)), switcher=switcher())
     assert kinds(ind) == [Overlay, StatusItem]
 
@@ -47,8 +47,21 @@ def test_icon_only_with_indicator_none():
     assert kinds(ind) == [StatusItem]
 
 
-def test_nothing_visible_gives_the_null_indicator():
-    assert isinstance(make_indicator(live(Config(indicator="none"))), NullIndicator)
+def test_the_status_item_is_always_built_so_the_icon_can_be_switched_on_later():
+    ind = make_indicator(live(Config(indicator="none")), switcher=switcher())
+    assert kinds(ind) == [StatusItem]
+    assert isinstance(ind, Host) and ind.window is not None
+
+
+def test_without_a_switcher_there_is_no_status_item_or_window():
+    ind = make_indicator(live(Config(indicator="none")))
+    assert isinstance(ind, Host) and ind.parts == [] and ind.window is None
+
+
+def test_menubar_icon_is_wired_to_the_status_item_as_a_live_hook():
+    lv = live(Config(indicator="none"))
+    ind = make_indicator(lv, switcher=switcher())
+    assert lv.key_hooks["menubar_icon"] == ind.parts[0].enable
 
 
 def test_the_restart_callback_reaches_the_status_item():

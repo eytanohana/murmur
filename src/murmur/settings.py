@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import sys
 import tomllib
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -15,6 +16,7 @@ import tomlkit
 from . import models
 from .agent import LABEL, service_target
 from .config import LIVE_KEYS, Config, load_config, validate_setting
+from .frozen import bundle_path, is_frozen
 from .modelswitch import SwitchState
 from .settings_view import header_text, model_options
 
@@ -24,6 +26,15 @@ CONFIG_HEADER = (
 )
 
 log = logging.getLogger("murmur")
+
+FIRST_RUN_CONFIG = (
+    "# murmur config, created on first launch. Every key is optional; see the README.\n"
+    "# Changes apply on the next Option press (a few keys need a restart).\n"
+    "#\n"
+    "# The menu bar icon is the app's only visible presence, and its menu holds Settings and\n"
+    "# Quit, so it starts on. Set it to false to hide it (edit the file to bring it back).\n"
+    "menubar_icon = true\n"
+)
 
 ICON_IDLE = "mic"
 ICON_RECORDING = "mic.fill"
@@ -61,6 +72,7 @@ def build_menu(
     error: str | None = None,
     switch: SwitchState | None = None,
     cached: Collection[str] = (),
+    launch_login: bool = False,
 ) -> list[MenuItem]:
     """The compact menu for the live `cfg`.
 
@@ -81,6 +93,19 @@ def build_menu(
         MenuItem("separator"),
         MenuItem("setting", "Streaming", "stream", not cfg.stream, checked=cfg.stream),
         MenuItem("setting", "Sounds", "sounds", not cfg.sounds, checked=cfg.sounds),
+        *(
+            [
+                MenuItem(
+                    "setting",
+                    "Launch at login",
+                    "launch_at_login",
+                    not cfg.launch_at_login,
+                    checked=cfg.launch_at_login,
+                )
+            ]
+            if launch_login
+            else []
+        ),
         MenuItem("submenu", "Model", children=model_items),
         MenuItem("action", "Settings...", action="settings"),
         MenuItem("action", "Open config file", action="open_config"),
@@ -105,6 +130,15 @@ def ensure_config_file(path: Path) -> Path:
     return path
 
 
+def write_first_run_config(path: Path) -> bool:
+    """Create the config for a first launch of the app. Returns True when it was written."""
+    if path.exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(FIRST_RUN_CONFIG)
+    return True
+
+
 def write_setting(path: Path, key: str, value: object) -> None:
     """Validate and write one key, keeping the file's comments, order and other keys."""
     validate_setting(key, value)
@@ -116,29 +150,72 @@ def write_setting(path: Path, key: str, value: object) -> None:
     os.replace(tmp, path)  # a crash mid-write cannot leave a half-written config
 
 
+def relaunch_command(bundle: Path, pid: int) -> list[str]:
+    """Wait for `pid` to exit, then open a new instance of the app.
+
+    Opening first would start a second copy while the first still holds the instance
+    lock, and the new one would quit. Waiting guarantees exactly one copy afterwards.
+    """
+    script = (
+        f"while kill -0 {pid} 2>/dev/null; do sleep 0.2; done; "
+        f"/usr/bin/open -n {shlex.quote(str(bundle))}"
+    )
+    return ["/bin/sh", "-c", script]
+
+
 def restart_plan(
-    environ: Mapping[str, str], executable: str, orig_argv: Sequence[str]
+    environ: Mapping[str, str],
+    executable: str,
+    orig_argv: Sequence[str],
+    bundle: Path | None = None,
+    pid: int = 0,
 ) -> tuple[str, list[str]]:
-    """How to restart: ("launchctl", cmd) under the LaunchAgent, else ("exec", argv).
+    """How to restart: relaunch the app bundle, kickstart the LaunchAgent, or re-exec.
 
     launchd sets XPC_SERVICE_NAME to the job label. Re-exec replays the original
     interpreter arguments, so `python -m murmur` and the `murmur` script both work.
     """
+    if bundle is not None:
+        return "relaunch", relaunch_command(bundle, pid)
     if environ.get("XPC_SERVICE_NAME") == LABEL:
         return "launchctl", ["launchctl", "kickstart", "-k", service_target()]
     return "exec", [executable, *orig_argv[1:]]
 
 
 def restart_now(stop_everything) -> None:  # pragma: no cover - replaces the process
-    """Stop the listener and recorder, then restart through launchd or by re-exec."""
+    """Stop the listener and recorder, then restart through the bundle, launchd or re-exec."""
     import subprocess
 
-    how, command = restart_plan(os.environ, sys.executable, sys.orig_argv)
+    bundle = bundle_path() if is_frozen() else None
+    how, command = restart_plan(os.environ, sys.executable, sys.orig_argv, bundle, os.getpid())
     stop_everything()
-    if how == "launchctl":
+    if how == "relaunch":
+        subprocess.Popen(command, start_new_session=True)  # outlives this process
+        import AppKit
+
+        AppKit.NSApp.terminate_(None)
+    elif how == "launchctl":
         subprocess.Popen(command)  # kickstart -k stops this process and starts a new one
     else:
         os.execv(command[0], command)
+
+
+def icon_plan(enabled: bool, exists: bool, visible: bool | None) -> str:
+    """What the status item needs so it matches menubar_icon: create, show, remove or keep."""
+    if enabled:
+        if not exists:
+            return "create"
+        return "show" if visible is False else "keep"
+    return "remove" if exists else "keep"
+
+
+def hidden_by_user(configured: bool, visible: bool, removing: bool) -> bool:
+    """True when the user took the icon out of the menu bar (Cmd-drag) while it was on.
+
+    macOS then sets the item's `visible` to NO; the setting must follow. Our own removal
+    (turning the setting off) is not the user's doing.
+    """
+    return configured and not visible and not removing
 
 
 def file_mtime(path: Path) -> int | None:
@@ -163,6 +240,8 @@ class LiveSettings:
         # (repo, from_file): a model_repo change is not applied here; the model switcher loads
         # the model first and calls commit_model once it is ready.
         self.model_hook: Callable[[str, bool], None] | None = None
+        # key -> callback(new value), run after a live key changes (for example launch at login)
+        self.key_hooks: dict[str, Callable[[object], object]] = {}
         self.pending: dict[str, object] = {}  # RESTART keys whose file value differs
         self.error: str | None = None  # set while the file on disk is invalid
         self._stat = stat
@@ -174,7 +253,10 @@ class LiveSettings:
                 self.model_hook(value, from_file)
             return
         if key in LIVE_KEYS:
+            changed = getattr(self.cfg, key) != value
             setattr(self.cfg, key, value)
+            if changed and key in self.key_hooks:
+                self.key_hooks[key](value)
         elif value != getattr(self.cfg, key):
             self.pending[key] = value
         else:
@@ -209,7 +291,9 @@ class LiveSettings:
         """Validate, write and apply one setting. Raises ValueError or OSError."""
         if key == "model_repo" and self.model_hook is not None:
             validate_setting(key, value)
-            self._apply(key, value)  # the file is written by commit_model after the load
+            # The file is written by commit_model after the load. The hook is always called,
+            # so picking the configured model again retries a first load that failed.
+            self.model_hook(value, False)
             return
         write_setting(self.path, key, value)
         self._seen = self._stat(self.path)  # our own write: do not reload it

@@ -8,7 +8,9 @@ from murmur import __main__ as cli
 @pytest.fixture
 def calls(monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli, "run_dictation", lambda cfg, path: seen.update(run=cfg, path=path))
+    monkeypatch.setattr(
+        cli, "run_dictation", lambda cfg, path, first_launch=False: seen.update(run=cfg, path=path)
+    )
     monkeypatch.setattr(cli, "main_agent", lambda command, args: seen.update(agent=(command, args)))
     return seen
 

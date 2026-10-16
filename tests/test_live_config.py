@@ -18,7 +18,7 @@ from murmur.transcriber import Transcriber
 
 
 def test_restart_keys_are_exactly_the_ones_that_need_a_reload():
-    assert RESTART_KEYS == {"sample_rate", "indicator", "menubar_icon"}
+    assert RESTART_KEYS == {"sample_rate", "indicator"}
 
 
 def test_every_key_is_live_or_restart_never_both():
@@ -28,9 +28,11 @@ def test_every_key_is_live_or_restart_never_both():
     assert {
         "model_repo",
         "language",
+        "menubar_icon",
         "min_hold_ms",
         "max_record_s",
         "silence_rms",
+        "launch_at_login",
         "option_keys",
         "insert_mode",
         "paste_restore_delay_ms",

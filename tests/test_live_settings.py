@@ -46,12 +46,12 @@ def test_a_changed_file_applies_live_keys_and_flags_restart_keys(setup):
     edit(
         path,
         stat,
-        'sounds = true\nstream_interval = 0.8\nsample_rate = 16000\nindicator = "none"\nmenubar_icon = true\n',
+        'sounds = true\nstream_interval = 0.8\nsample_rate = 16000\nindicator = "none"\n',
     )
     assert live.refresh() is True
     assert (live.cfg.sounds, live.cfg.stream_interval) == (True, 0.8)
-    assert live.cfg.indicator == "overlay" and live.cfg.menubar_icon is False  # not applied live
-    assert live.pending == {"indicator": "none", "menubar_icon": True}
+    assert live.cfg.indicator == "overlay"  # not applied live
+    assert live.pending == {"indicator": "none"}
     assert live.error is None
 
 
@@ -174,3 +174,11 @@ def test_revert_model_restores_only_a_hand_edited_file(setup):
     assert "bad/repo" in path.read_text()  # a menu switch never wrote the file
     live.revert_model("bad/repo", "old/repo", from_file=True)
     assert 'model_repo = "old/repo"' in path.read_text()
+
+
+def test_choosing_the_configured_model_again_still_reaches_the_switcher(setup):
+    live, _, path = setup
+    calls = []
+    live.model_hook = lambda repo, from_file: calls.append((repo, from_file))
+    live.set_value("model_repo", live.cfg.model_repo)  # a retry after a failed first load
+    assert calls == [(live.cfg.model_repo, False)] and not path.exists()
