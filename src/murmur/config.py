@@ -26,7 +26,7 @@ class Config:
     sample_rate: int = 16000
     min_hold_ms: int = 1000
     max_record_s: float = 120.0
-    silence_rms: float = 0.005
+    silence_rms: float = 0.003
     # Start murmur.app at login (only in the app build; see launchlogin.py).
     launch_at_login: bool = False
     # "left", "right" or "both"

@@ -88,6 +88,18 @@ class HotkeyListener:
         )
         self._listener.start()
 
+    def recreate(self) -> None:
+        """Replace the pynput listener. Its event tap may have been created before a
+        permission was granted; the dispatch worker keeps running."""
+        old = self._listener
+        self._held.clear()
+        self._listener = keyboard.Listener(
+            on_press=self.handle_press, on_release=self.handle_release
+        )
+        self._listener.start()
+        if old is not None:
+            old.stop()
+
     def stop(self) -> None:
         if self._listener:
             self._listener.stop()

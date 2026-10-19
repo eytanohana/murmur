@@ -13,7 +13,7 @@ murmur.app is a self-contained build for Apple Silicon Macs on macOS 15 or newer
    - Microphone: murmur records while you hold Option.
    - Accessibility: murmur types the transcript into the app you are using.
    - Input Monitoring: murmur sees the Option key press and release.
-   If you dismissed a prompt, turn murmur on in the matching list, then choose Restart murmur from the menu bar icon.
+   You do not need to restart anything. murmur checks the permissions that were missing every two seconds (a few cheap system calls, only while one is missing). When Accessibility or Input Monitoring is granted, it relaunches itself once so the hotkey starts working (it waits for a running dictation to finish first, and never relaunches twice within two minutes); when Microphone is granted, the next recording uses a fresh audio stream and no restart happens. If you dismissed a prompt, turn murmur on in the matching list and wait a moment.
 5. First launch: Settings opens once as a welcome (where you grant the permissions). With no config file the app writes `~/.config/murmur/config.toml` with `menubar_icon = true`, because without a terminal the menu bar icon is the only sign the app is running and its menu holds Settings and Quit. murmur then downloads the default model (about 1.6 GB, tiny to large-v3 are in the Model tab) in the background; the menu header reads "Downloading large-v3 turbo 37%..." and holding Option is ignored until it finishes. If the download fails (for example offline), the header says "Model load failed: see log", the error is in `~/Library/Logs/murmur.log`, and choosing the model again in the Model tab (or relaunching) retries. A model that is already cached loads in a few seconds with no download.
 6. Launch at login: turn on "Launch at login" in the menu or in Settings > General. murmur registers with macOS as a login item; if macOS refuses an ad-hoc signed app it writes a small LaunchAgent (`~/Library/LaunchAgents/com.eytanohana.murmur.login.plist`) that opens the app instead. If you installed the developer LaunchAgent below (`com.user.murmur`), the toggle is disabled until you run `murmur uninstall-agent`, so two copies never start.
 
@@ -58,13 +58,13 @@ The first run downloads the model (about 1.6 GB) into the Hugging Face cache. La
 
 ## Permissions
 
-Grant these to the terminal app that runs the command, in System Settings > Privacy & Security, then restart the terminal:
+Grant these to the terminal app that runs the command, in System Settings > Privacy & Security:
 
 - Accessibility: sends the synthetic Cmd+V.
 - Input Monitoring: global Option key listening.
 - Microphone: prompted on first recording.
 
-The app prints a warning at startup for Accessibility and Input Monitoring if they look missing.
+The app prints a warning at startup for Accessibility and Input Monitoring if they look missing, and watches them (see the app section above): when you grant one, murmur relaunches itself instead of asking you to. When you run from a checkout, the terminal's permissions are the ones that count, and the relaunch re-executes the same command; if the terminal itself needed a grant, restart the terminal once.
 
 ## Recording indicator
 
@@ -187,7 +187,7 @@ Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown
 | `language` | `"en"` | Forced language; English-only models always use en |
 | `min_hold_ms` | `1000` | Minimum hold to count |
 | `max_record_s` | `120` | Maximum recording length |
-| `silence_rms` | `0.005` | RMS below this counts as silence |
+| `silence_rms` | `0.003` | RMS below this counts as silence |
 | `option_keys` | `"both"` | `"left"`, `"right"` or `"both"` |
 | `insert_mode` | `"paste"` | `"paste"` or `"type"`. With `stream = true` every chunk is typed with key events and this setting does nothing; with `stream = false` the whole clip is inserted on release, either by clipboard and Cmd+V (the previous plain-text clipboard is restored) or by typing key events with no clipboard. |
 | `paste_restore_delay_ms` | `150` | Wait before restoring the clipboard |
@@ -231,6 +231,8 @@ Word similarity to the spoken text was 1.000 in all three rows (0.989 against Wh
 Tried and rejected: decoding only the uncommitted tail plus 3 s of overlap did not make passes faster (cost is flat in audio length) and lost words at the window edge (115 of 134 words typed, similarity 0.92). Committing after one pass for words followed by three more words with probability of at least 0.9 needs word timestamps (0.4 s more per pass), and typed 107 of 134 words (similarity 0.88). Lowering the temperature or the decode length changed nothing measurable.
 
 ## Troubleshooting
+
+**The pill shows REC but nothing is typed.** The recording was too quiet. Audio below the silence threshold (Settings > General, default 0.003 RMS) is treated as silence and never sent to Whisper. The log (`~/Library/Logs/murmur.log`) then says "Nothing heard: the loudest 20 ms of this recording had RMS 0.00xx and the silence threshold is 0.0030". The built-in MacBook microphone with a low input volume can sit near that level: raise Input volume in System Settings > Sound > Input, or lower the silence threshold further (0.003 is about four times the room noise measured on a MacBook Pro).
 
 Logs go to the terminal at INFO level: Option down and up, every streaming pass with its text, and every insert with the text and the number of key events posted. If a pass or an insert runs longer than 10 s, all thread stacks are logged as an error; include that in a bug report.
 

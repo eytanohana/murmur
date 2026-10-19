@@ -25,6 +25,7 @@ import numpy as np
 from .audio import (
     drop_leading_silence,
     drop_trailing_silence,
+    loudest_frame_rms,
     rms,
     speech_seconds,
     trailing_silence_s,
@@ -167,6 +168,12 @@ class Streamer:
         new = audio[self.last_pass_samples :]
         return speech_seconds(new, self.sr, self.cfg.silence_rms) >= self.cfg.stream_min_speech_s
 
+    def _trim_edges(self, audio: np.ndarray, drop_trailing: bool) -> tuple[np.ndarray, int]:
+        """The audio Whisper is given: leading (and optionally trailing) silence cut down."""
+        if drop_trailing:
+            audio = drop_trailing_silence(audio, self.sr, self.cfg.silence_rms)
+        return drop_leading_silence(audio, self.sr, self.cfg.silence_rms)
+
     def _hear(
         self, audio: np.ndarray, label: str, drop_trailing: bool, timestamps: bool
     ) -> list[Word]:
@@ -176,10 +183,7 @@ class Streamer:
         pass would commit them for good.
         """
         with watchdog(label):
-            heard = audio
-            if drop_trailing:
-                heard = drop_trailing_silence(heard, self.sr, self.cfg.silence_rms)
-            heard, removed = drop_leading_silence(heard, self.sr, self.cfg.silence_rms)
+            heard, removed = self._trim_edges(audio, drop_trailing)
             words = self.transcriber.transcribe_words(heard, self._prompt(), timestamps=timestamps)
         offset = removed / self.sr
         return [Word(w.text, w.start + offset, w.end + offset) for w in words]
@@ -258,7 +262,12 @@ class Streamer:
     # release
 
     def _final_words(self, final_audio: np.ndarray) -> list[str]:
-        if rms(final_audio) < self.cfg.silence_rms:
+        # Gate on the audio Whisper would hear (edges trimmed), like every streaming pass.
+        # Gating on the whole recording diluted quiet speech with the silence around it: the
+        # streaming passes heard words, but the final pass was skipped and the last words,
+        # still held back, were never typed.
+        heard, _ = self._trim_edges(final_audio, drop_trailing=True)
+        if rms(heard) < self.cfg.silence_rms:
             return []
         t0 = self.clock()
         log.info("final pass start: %.1fs audio", len(final_audio) / self.sr)
@@ -276,6 +285,15 @@ class Streamer:
             return []
         before = self.total_committed
         final = self._final_words(final_audio)
+        if before == 0 and not final:
+            loudest = loudest_frame_rms(final_audio, self.sr)
+            log.info(
+                "Nothing heard: the loudest 20 ms of this recording had RMS %.4f and the silence "
+                "threshold is %.4f. If you spoke, raise the input volume (System Settings > "
+                "Sound > Input) or lower the silence threshold in Settings.",
+                loudest,
+                self.cfg.silence_rms,
+            )
         tail, mismatch = release_tail(self.seg_committed, final)
         if mismatch:
             log.warning(
