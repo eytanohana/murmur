@@ -187,7 +187,7 @@ Optional file at `~/.config/murmur/config.toml`. Any key can be omitted. Unknown
 | `language` | `"en"` | Forced language; English-only models always use en |
 | `min_hold_ms` | `1000` | Minimum hold to count |
 | `max_record_s` | `120` | Maximum recording length |
-| `silence_rms` | `0.005` | RMS below this counts as silence |
+| `silence_rms` | `0.003` | RMS below this counts as silence |
 | `option_keys` | `"both"` | `"left"`, `"right"` or `"both"` |
 | `insert_mode` | `"paste"` | `"paste"` or `"type"`. With `stream = true` every chunk is typed with key events and this setting does nothing; with `stream = false` the whole clip is inserted on release, either by clipboard and Cmd+V (the previous plain-text clipboard is restored) or by typing key events with no clipboard. |
 | `paste_restore_delay_ms` | `150` | Wait before restoring the clipboard |
@@ -232,7 +232,7 @@ Tried and rejected: decoding only the uncommitted tail plus 3 s of overlap did n
 
 ## Troubleshooting
 
-**The pill shows REC but nothing is typed.** The recording was too quiet. Audio below the silence threshold (Settings > General, default 0.005 RMS) is treated as silence and never sent to Whisper. The log (`~/Library/Logs/murmur.log`) then says "Nothing heard: the loudest 20 ms of this recording had RMS 0.00xx and the silence threshold is 0.0050". The built-in MacBook microphone with a low input volume can sit right at that level: raise Input volume in System Settings > Sound > Input, or lower the silence threshold (0.003 is about four times the room noise measured on a MacBook Pro and still ignores silence).
+**The pill shows REC but nothing is typed.** The recording was too quiet. Audio below the silence threshold (Settings > General, default 0.003 RMS) is treated as silence and never sent to Whisper. The log (`~/Library/Logs/murmur.log`) then says "Nothing heard: the loudest 20 ms of this recording had RMS 0.00xx and the silence threshold is 0.0030". The built-in MacBook microphone with a low input volume can sit near that level: raise Input volume in System Settings > Sound > Input, or lower the silence threshold further (0.003 is about four times the room noise measured on a MacBook Pro).
 
 Logs go to the terminal at INFO level: Option down and up, every streaming pass with its text, and every insert with the text and the number of key events posted. If a pass or an insert runs longer than 10 s, all thread stacks are logged as an error; include that in a bug report.
 

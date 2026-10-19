@@ -334,7 +334,7 @@ def test_the_final_pass_runs_when_speech_is_quiet_but_the_recording_is_mostly_si
 
     audio = quiet_clip(0.0065)
     assert rms(audio) < 0.005  # diluted below the threshold by the silence around the speech
-    s, _, tr, ins = make_streamer([ws("one", "two")])
+    s, _, tr, ins = make_streamer([ws("one", "two")], silence_rms=0.005)
     assert s.finish(audio) == ["one", "two"]
     assert ins.typed == ["one two"] and len(tr.audio_lengths) == 1
     assert 2.0 < tr.audio_lengths[0] / SR < 3.0  # the edges were trimmed, the speech was kept
@@ -343,7 +343,7 @@ def test_the_final_pass_runs_when_speech_is_quiet_but_the_recording_is_mostly_si
 def test_speech_below_the_threshold_is_still_skipped_and_the_log_says_how_loud_it_was(
     make_streamer, caplog
 ):
-    s, _, tr, ins = make_streamer([ws("never")])
+    s, _, tr, ins = make_streamer([ws("never")], silence_rms=0.005)
     with caplog.at_level(logging.INFO, logger="murmur"):
         assert s.finish(quiet_clip(0.003)) == []
     assert tr.prompts == [] and ins.typed == []
