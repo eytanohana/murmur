@@ -310,3 +310,53 @@ def test_finish_without_any_committed_words_types_the_whole_final_text(make_stre
     audio = tone(1.0, 0 if silent else 0.1)
     s.finish(audio)
     assert ins.typed == ([] if silent else ["hello there"])
+
+
+# ---- quiet speech: the final pass must not be gated on the whole recording ----------------------------------
+
+
+def quiet_clip(level, lead_s=3.0, speech_s=2.0):
+    import numpy as np
+
+    from helpers import tone
+
+    return np.concatenate([tone(lead_s, 0.0), tone(speech_s, level)])
+
+
+def test_the_final_pass_runs_when_speech_is_quiet_but_the_recording_is_mostly_silence(
+    make_streamer,
+):
+    # Speech at RMS 0.0065 is above the 0.005 threshold, but the whole recording (3 s of quiet
+    # lead from the hold, then 2 s of speech) averages 0.0041. The streaming passes gate on the
+    # trimmed audio and heard it; the final pass used to gate on the whole clip and skip it, so
+    # the held-back words were never typed.
+    from murmur.audio import rms
+
+    audio = quiet_clip(0.0065)
+    assert rms(audio) < 0.005  # diluted below the threshold by the silence around the speech
+    s, _, tr, ins = make_streamer([ws("one", "two")])
+    assert s.finish(audio) == ["one", "two"]
+    assert ins.typed == ["one two"] and len(tr.audio_lengths) == 1
+    assert 2.0 < tr.audio_lengths[0] / SR < 3.0  # the edges were trimmed, the speech was kept
+
+
+def test_speech_below_the_threshold_is_still_skipped_and_the_log_says_how_loud_it_was(
+    make_streamer, caplog
+):
+    s, _, tr, ins = make_streamer([ws("never")])
+    with caplog.at_level(logging.INFO, logger="murmur"):
+        assert s.finish(quiet_clip(0.003)) == []
+    assert tr.prompts == [] and ins.typed == []
+    assert "Nothing heard" in caplog.text and "RMS 0.0030" in caplog.text
+    assert "silence threshold is 0.0050" in caplog.text and "input volume" in caplog.text
+
+
+def test_the_nothing_heard_note_is_not_logged_when_words_were_typed(make_streamer, caplog):
+    s, rec, _, _ = make_streamer([ws("a", "b", "c"), ws("a", "b", "c", "d"), []])
+    rec.feed(1.0)
+    s.tick()
+    rec.feed(1.0)
+    s.tick()
+    with caplog.at_level(logging.INFO, logger="murmur"):
+        s.finish(rec.audio)
+    assert "Nothing heard" not in caplog.text

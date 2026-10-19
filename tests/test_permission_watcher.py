@@ -301,3 +301,54 @@ def test_recreating_the_listener_replaces_the_pynput_listener(monkeypatch):
     h._held.add("alt")
     h.recreate()
     assert old.stopped and made[-1].started and h._listener is made[-1] and h._held == set()
+
+
+# ---- polling must not disturb a recording --------------------------------------------------------------------
+
+
+def test_the_watcher_does_not_poll_while_a_dictation_is_running():
+    initial = {A: False}
+    reads = Reads({A: False}, {A: True})
+    import itertools
+
+    busy = itertools.chain([True, True], itertools.repeat(False))
+    watcher = p.PermissionWatcher(
+        reads, initial, lambda f: None, sleep=lambda s: None, paused=lambda: next(busy)
+    )
+    watcher.run()
+    assert reads.calls == 2  # two skipped cycles cost no probe at all; the next two polled
+
+
+def test_the_microphone_status_class_is_loaded_once(monkeypatch):
+    import objc
+
+    loads = []
+    monkeypatch.setattr(p, "_capture_device", None)
+
+    class Device:
+        @staticmethod
+        def authorizationStatusForMediaType_(kind):
+            return 3
+
+    monkeypatch.setattr(objc, "loadBundle", lambda *a, **k: loads.append(1))
+    monkeypatch.setattr(objc, "lookUpClass", lambda name: Device)
+    assert p.microphone_authorized() is True and p.microphone_authorized() is True
+    assert loads == [1]  # loading the bundle on every poll cost recorded audio
+
+
+def test_a_microphone_that_worked_at_startup_is_not_watched():
+    state = p.startup_state(lambda: {A: True, I: False, M: False}, mic_heard=True)
+    assert state == {A: True, I: False, M: True} and p.missing(state) == {I}
+    assert p.startup_state(lambda: {A: True, I: True, M: False}, mic_heard=False)[M] is False
+    assert p.missing(p.startup_state(lambda: ALL_OK, mic_heard=False)) == set()
+
+
+def test_check_permissions_reports_whether_the_microphone_gave_audio(monkeypatch):
+    import Quartz
+
+    monkeypatch.setattr(p, "accessibility_trusted", lambda prompt=False: True)
+    monkeypatch.setattr(Quartz, "CGPreflightListenEventAccess", lambda: True)
+    monkeypatch.setattr(p, "check_microphone", lambda: True)
+    assert p.check_permissions() is True
+    monkeypatch.setattr(p, "check_microphone", lambda: False)
+    assert p.check_permissions() is False

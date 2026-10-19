@@ -34,6 +34,14 @@ def speech_seconds(audio: np.ndarray, sample_rate: int, threshold: float) -> flo
     return float(np.count_nonzero(frame_rms(audio, frame) > threshold)) * FRAME_S
 
 
+def loudest_frame_rms(audio: np.ndarray, sample_rate: int) -> float:
+    """RMS of the loudest 20 ms frame: how loud the speech was at its best."""
+    frame = frame_size(sample_rate)
+    if frame <= 0 or audio.size < frame:
+        return 0.0
+    return float(frame_rms(audio, frame).max())
+
+
 def trailing_silence_s(audio: np.ndarray, sample_rate: int, threshold: float) -> float:
     """Seconds of audio at the end whose frames are all at or below the threshold."""
     frame = frame_size(sample_rate)

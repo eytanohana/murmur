@@ -66,11 +66,12 @@ def check_microphone(sample_rate: int = 16000) -> bool:
     return True
 
 
-def check_permissions() -> None:
+def check_permissions() -> bool:
     """Warn about missing macOS permissions and trigger the system prompts.
 
     The prompts are requested for this process, so they also appear when it runs
     from launchd with no terminal attached. Warnings name the real python binary.
+    Returns whether the microphone delivered real audio.
     """
     target = permission_target()
     if not accessibility_trusted(prompt=True):
@@ -91,7 +92,7 @@ def check_permissions() -> None:
             )
     except (ImportError, AttributeError):
         pass
-    check_microphone()
+    return check_microphone()
 
 
 # ---- noticing a grant while the app runs -------------------------------------------------------------------------------
@@ -109,15 +110,21 @@ POLL_INTERVAL_S = 2.0
 State = dict[str, bool]
 
 
+_capture_device = None  # AVCaptureDevice, loaded once: loading the bundle on every poll costs audio
+
+
 def microphone_authorized() -> bool | None:
     """AVCaptureDevice authorization for audio (3 = authorized); None if it cannot be read."""
+    global _capture_device
     try:
-        import objc
+        if _capture_device is None:
+            import objc
 
-        objc.loadBundle(
-            "AVFoundation", {}, bundle_path="/System/Library/Frameworks/AVFoundation.framework"
-        )
-        status = objc.lookUpClass("AVCaptureDevice").authorizationStatusForMediaType_("soun")
+            objc.loadBundle(
+                "AVFoundation", {}, bundle_path="/System/Library/Frameworks/AVFoundation.framework"
+            )
+            _capture_device = objc.lookUpClass("AVCaptureDevice")
+        status = _capture_device.authorizationStatusForMediaType_("soun")
     except Exception:  # noqa: BLE001  the framework or class is missing: leave the mic unwatched
         return None
     return int(status) == 3
@@ -134,6 +141,15 @@ def probe() -> State:  # pragma: no cover - cheap real system calls (about 10 to
     mic = microphone_authorized()
     if mic is not None:
         state[MICROPHONE] = mic
+    return state
+
+
+def startup_state(read: Callable[[], State], mic_heard: bool) -> State:
+    """The permissions the hotkey listener starts with. A microphone that delivered real audio
+    at startup works, whatever AVFoundation reports, so it is never watched."""
+    state = dict(read())
+    if mic_heard:
+        state[MICROPHONE] = True
     return state
 
 
@@ -242,8 +258,10 @@ class PermissionWatcher:
         on_granted: Callable[[set[str]], None],
         interval: float = POLL_INTERVAL_S,
         sleep: Callable[[float], None] = time.sleep,
+        paused: Callable[[], bool] = lambda: False,
     ):
         self.read = read
+        self.paused = paused  # True while a dictation is recording: the poll waits
         self.state = dict(initial)
         self.on_granted = on_granted
         self.interval = interval
@@ -272,6 +290,8 @@ class PermissionWatcher:
             self.sleep(self.interval)
             if self._stop:
                 break
+            if self.paused():
+                continue  # a poll stalls the audio callback for tens of milliseconds
             try:
                 self.poll()
             except Exception:

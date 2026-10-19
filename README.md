@@ -232,6 +232,8 @@ Tried and rejected: decoding only the uncommitted tail plus 3 s of overlap did n
 
 ## Troubleshooting
 
+**The pill shows REC but nothing is typed.** The recording was too quiet. Audio below the silence threshold (Settings > General, default 0.005 RMS) is treated as silence and never sent to Whisper. The log (`~/Library/Logs/murmur.log`) then says "Nothing heard: the loudest 20 ms of this recording had RMS 0.00xx and the silence threshold is 0.0050". The built-in MacBook microphone with a low input volume can sit right at that level: raise Input volume in System Settings > Sound > Input, or lower the silence threshold (0.003 is about four times the room noise measured on a MacBook Pro and still ignores silence).
+
 Logs go to the terminal at INFO level: Option down and up, every streaming pass with its text, and every insert with the text and the number of key events posted. If a pass or an insert runs longer than 10 s, all thread stacks are logged as an error; include that in a bug report.
 
 Text is typed with Quartz keyboard events (flags cleared, 20 UTF-16 units per event), so a held Option key does not alter the characters. Key events injected by software never cancel a recording.

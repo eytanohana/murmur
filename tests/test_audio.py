@@ -76,3 +76,11 @@ def test_trim_sample_ignores_quiet_frames_in_the_first_100ms_of_the_word():
 
 def test_trim_sample_keeps_the_word_end_when_speech_is_continuous():
     assert trim_sample([w("a", 0.0, 1.0)], 1, SR, 2 * SR, tone(2), THRESHOLD) == SR
+
+
+def test_loudest_frame_rms_is_the_peak_of_the_20ms_frames():
+    from murmur.audio import loudest_frame_rms
+
+    audio = clip(tone(1, 0), tone(0.1, 0.02), tone(1, 0.001))
+    assert abs(loudest_frame_rms(audio, SR) - 0.02) < 1e-4
+    assert loudest_frame_rms(tone(0.001), SR) == 0.0  # shorter than one frame

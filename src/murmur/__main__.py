@@ -71,8 +71,9 @@ def run_dictation(
         reopen.post_open_request(str(lock.path))  # the running copy opens its Settings window
         return
     selftest_wav = selftest.requested()
+    mic_heard = False
     if not selftest_wav:
-        check_permissions()
+        mic_heard = check_permissions()
     cached = prepare_offline(cfg.model_repo)  # offline only when the model is cached
     transcriber = Transcriber(cfg)
     # A cached model loads in a few seconds before the app shows. An uncached one downloads
@@ -125,7 +126,7 @@ def run_dictation(
     else:
         # The snapshot is taken right before the listener is created, so it describes the
         # permissions the listener's event tap starts with. Only a later grant is a flip.
-        initial = permissions.probe()
+        initial = permissions.startup_state(permissions.probe, mic_heard)
         listener.start()
         watcher = permissions.PermissionWatcher(
             permissions.probe,
@@ -137,6 +138,7 @@ def run_dictation(
                 recheck_microphone=permissions.recheck_microphone,
                 guard=permissions.RestartGuard(config_path.parent / "permission-restart"),
             ),
+            paused=lambda: dictation.state is not State.IDLE,  # never poll during a dictation
         )
         watcher.start()  # nothing is polled when every permission was already granted
     if background_load:
