@@ -42,6 +42,10 @@ class State(enum.Enum):
     TRANSCRIBING = "transcribing"
 
 
+FAILSAFE_GRACE_S = 5.0  # past max_record_s, a recording that is still open is stuck
+LOCK_WAIT_S = 5.0
+
+
 def start_timer(delay_s: float, fn: Callable[[], None]) -> None:
     """Run fn once after delay_s on a daemon thread."""
     timer = threading.Timer(delay_s, fn)
@@ -63,6 +67,7 @@ class Dictation:
         run_async: bool = True,
         sound: Callable[[str], None] = play_sound,
         schedule: Callable[[float, Callable[[], None]], None] = start_timer,
+        failsafe_schedule: Callable[[float, Callable[[], None]], None] = start_timer,
         refresh: Callable[[], object] = lambda: None,
         ready: Callable[[], bool] = lambda: True,
     ):
@@ -76,6 +81,7 @@ class Dictation:
         self.run_async = run_async
         self.sound = sound
         self.schedule = schedule
+        self.failsafe_schedule = failsafe_schedule  # separate seam: tests fire it on purpose
         self.refresh = refresh  # re-reads the config file when it changed; called at key down
         self.ready = ready  # False while the first model is still downloading or loading
         self.state = State.IDLE
@@ -128,6 +134,37 @@ class Dictation:
             # Marks that the hold threshold passed (indicator and optional sound).
             press_id = self._press_id
             self.schedule(self.active.min_hold_ms / 1000, lambda: self._threshold_passed(press_id))
+            # The recorder's own max-length stop needs audio callbacks; if the device stalls
+            # none arrive, so this timer is the last line of defence for the microphone.
+            self.failsafe_schedule(
+                self.active.max_record_s + FAILSAFE_GRACE_S, lambda: self._failsafe(press_id)
+            )
+
+    def stuck(self) -> bool:
+        """True when a recording has outlived its maximum length plus the grace period."""
+        return (
+            self.state is State.RECORDING
+            and self.clock() - self._started_at > self.active.max_record_s + FAILSAFE_GRACE_S
+        )
+
+    def _failsafe(self, press_id: int) -> None:
+        """Force the microphone closed and go idle if this recording never ended."""
+        if self.state is not State.RECORDING or press_id != self._press_id:
+            return
+        log.error("Recording still open past the maximum length; closing the microphone")
+        got = self._lock.acquire(timeout=LOCK_WAIT_S)  # another thread may be stuck holding it
+        try:
+            if self.state is not State.RECORDING or press_id != self._press_id:
+                return
+            try:
+                self.recorder.stop()
+            except Exception:
+                log.exception("Could not stop the recorder")
+            self._discard_streamer()
+            self._set_state(State.IDLE)
+        finally:
+            if got:
+                self._lock.release()
 
     def _threshold_passed(self, press_id: int) -> None:
         with self._lock:

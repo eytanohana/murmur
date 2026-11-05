@@ -39,6 +39,7 @@ class Host:
         self.show_settings_on_start = False  # first launch: a short welcome where to grant access
         self.open_scope: str | None = None  # notification object: the instance lock path
         self.is_busy: Callable[[], bool] = lambda: False  # True while a dictation is running
+        self.is_stuck: Callable[[], bool] = lambda: False  # True when a recording never ended
         self.stop_everything: Callable[[], None] = lambda: None  # listener and recorder
         self.uninstall = None  # the UninstallController, when there is a switcher
 
@@ -60,7 +61,7 @@ class Host:
 
     def handle_open_request(self) -> None:
         """A second copy started by executing the binary asked us to open Settings."""
-        if not route_open_request(self.is_busy()):
+        if not route_open_request(self.is_busy(), self.is_stuck()):
             log.info("Settings requested by a second launch, but a dictation is running; ignored")
             return
         log.info("A second launch asked for Settings")

@@ -14,9 +14,12 @@ import time
 OPEN_SETTINGS_NOTIFICATION = "com.eytanohana.murmur.open-settings"
 
 
-def route_open_request(busy: bool) -> bool:
-    """Open Settings for a request from a second launch, unless a dictation is running."""
-    return not busy
+def route_open_request(busy: bool, stuck: bool = False) -> bool:
+    """Open Settings for a request from a second launch, unless a dictation is running.
+
+    A stuck dictation never ends by itself, so it must not lock the user out of Settings.
+    """
+    return stuck or not busy
 
 
 def should_welcome(first_launch: bool, selftest: bool) -> bool:

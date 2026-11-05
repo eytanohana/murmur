@@ -120,3 +120,60 @@ def test_input_status_warns_once_per_recording(monkeypatch, caplog):
         rec.start()
         rec._callback(block, 100, None, "input overflow")  # a new recording warns again
     assert caplog.text.count("Audio input problem") == 2
+
+
+def test_a_microphone_that_never_starts_raises_instead_of_hanging(monkeypatch):
+    release = threading.Event()
+    closed = []
+
+    class HangingStream:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            release.wait(5)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            closed.append(1)
+
+    monkeypatch.setattr("murmur.recorder.sd.InputStream", HangingStream)
+    rec = Recorder(Config(max_record_s=10), device_timeout=0.05)
+    try:
+        rec.start()
+        raise AssertionError("start should have timed out")
+    except RuntimeError as exc:
+        assert "did not start" in str(exc)
+    release.set()  # the device finally answers: the late stream is closed, not left running
+    for _ in range(100):
+        if closed:
+            break
+        threading.Event().wait(0.02)
+    assert closed == [1]
+
+
+def test_stop_does_not_wait_forever_on_a_stuck_close(monkeypatch, caplog):
+    release = threading.Event()
+
+    class StuckStream:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            release.wait(5)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("murmur.recorder.sd.InputStream", StuckStream)
+    rec = Recorder(Config(max_record_s=10), device_timeout=0.05)
+    rec.start()
+    with caplog.at_level("ERROR", logger="murmur"):
+        rec.stop()
+    release.set()
+    assert "giving up" in caplog.text

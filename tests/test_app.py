@@ -248,3 +248,42 @@ def test_option_is_ignored_until_the_model_is_ready(make_dictation, caplog):
     r.d.ready = lambda: True
     r.d.on_press()
     assert r.rec.started == 1
+
+
+def test_failsafe_is_scheduled_past_the_max_length(make_dictation):
+    r = make_dictation(max_record_s=120.0)
+    r.d.on_press()
+    assert [d for d, _ in r.failsafe.pending] == [125.0]
+
+
+def test_failsafe_closes_a_recording_that_never_ended(make_dictation):
+    r = make_dictation()
+    r.d.on_press()
+    r.clock.t = 126.0
+    assert r.d.stuck() is True
+    r.failsafe.fire()
+    assert r.d.state is State.IDLE and r.d.stuck() is False
+    assert r.tr.calls == 0 and r.ins.inserted == []
+    r.d.on_press()  # dictation works again afterwards
+    assert r.d.state is State.RECORDING
+
+
+def test_failsafe_from_an_earlier_press_does_nothing(make_dictation):
+    r = make_dictation()
+    r.d.on_press()
+    hold(r, 1.0)
+    r.d.on_press()
+    r.failsafe.fire(0)  # belongs to the finished first press
+    assert r.d.state is State.RECORDING
+
+
+def test_failsafe_still_acts_when_another_thread_holds_the_lock(make_dictation, monkeypatch):
+    monkeypatch.setattr("murmur.app.LOCK_WAIT_S", 0.05)
+    r = make_dictation()
+    r.d.on_press()
+    r.d._lock.acquire()
+    try:
+        r.failsafe.fire()
+    finally:
+        r.d._lock.release()
+    assert r.d.state is State.IDLE
