@@ -13,6 +13,7 @@ from murmur.settings import LiveSettings, hidden_by_user, icon_plan
 def test_a_second_launch_opens_settings_unless_a_dictation_is_running():
     assert reopen.route_open_request(busy=False) is True
     assert reopen.route_open_request(busy=True) is False
+    assert reopen.route_open_request(busy=True, stuck=True) is True  # never lock the user out
 
 
 @pytest.mark.parametrize(

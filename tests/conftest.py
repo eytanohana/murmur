@@ -25,6 +25,7 @@ def make_dictation():
     def build(text: str = "hello world", recorder: FakeRecorder | None = None, **cfg):
         cfg.setdefault("stream", False)
         clock, schedule, indicator = ManualClock(), ManualScheduler(), RecordingIndicator()
+        failsafe = ManualScheduler()
         rec = recorder or FakeRecorder()
         tr, ins, sounds = FakeTranscriber(text), FakeInserter(), []
         dictation = Dictation(
@@ -37,11 +38,13 @@ def make_dictation():
             run_async=False,
             sound=sounds.append,
             schedule=schedule,
+            failsafe_schedule=failsafe,
         )
         return SimpleNamespace(
             d=dictation,
             clock=clock,
             schedule=schedule,
+            failsafe=failsafe,
             indicator=indicator,
             rec=rec,
             tr=tr,

@@ -105,6 +105,7 @@ def run_dictation(
     indicator.stop_everything = lambda: (listener.stop(), recorder.stop())
     indicator.is_busy = lambda: dictation.state is not State.IDLE
     indicator.show_settings_on_start = reopen.should_welcome(first_launch, bool(selftest_wav))
+    indicator.is_stuck = lambda: dictation.stuck()
     recorder = Recorder(cfg)
     inserter = Inserter(cfg)
     dictation = Dictation(
